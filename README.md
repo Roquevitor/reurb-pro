@@ -68,16 +68,35 @@ O arquivo `render.yaml` descreve o serviço web e um disco persistente. Depois d
 
 O disco persistente mantém banco, anexos e configurações entre deploys. O plano e o custo do Render podem mudar; confira os valores antes de ativar. A configuração usa um único worker para evitar concorrência de inicialização do SQLite.
 
-## Acesso restrito e colaboração — limitação atual
+## Colaboração multiempresa — fundação em implementação
 
-Esta versão utiliza **uma senha compartilhada** (`REURB_SENHA`) para todos os colaboradores. Isso restringe o acesso à aplicação, mas ainda não oferece:
+A branch `feature/multiempresa-equipes` inicia a estrutura de dados para transformar o REURB Pro em uma plataforma que atenda tanto o profissional autônomo quanto empresas de engenharia.
 
-- contas individuais;
-- papéis e permissões por usuário/instituição;
-- trilha de auditoria individual confiável;
-- segregação de projetos por prefeitura/serventia.
+### Estrutura preparada nesta etapa
 
-Portanto, não trate a senha compartilhada como controle de acesso institucional. Para colaboração com dados reais, a próxima etapa deve implementar usuários individuais, redefinição de senha, autorização por projeto/instituição, auditoria de ações e política de backup/restauração.
+- Organizações (workspaces) independentes.
+- Usuários individuais e vínculos de usuário por organização, com papéis previstos para proprietário, engenheiro, técnico de campo, topógrafo, assistente registral e revisor.
+- Equipes e integrantes.
+- Associação de colaboradores a projetos.
+- Tarefas por projeto, equipe e responsável, com prioridade, prazo e situação.
+- Eventos de atividade para futura trilha de auditoria.
+- Migração não destrutiva: os registros preexistentes são associados à organização principal; nenhum projeto, pessoa ou vértice é apagado.
+
+A migração é inicializada junto com o banco existente. Os campos de organização e a organização principal são criados de forma idempotente. Durante a transição, novos registros criados pelas rotas antigas recebem a organização principal automaticamente.
+
+### Limitação importante desta etapa
+
+**Isto ainda não habilita o uso multiempresa em produção.** O login atual continua usando senha compartilhada e as consultas antigas ainda não aplicam autorização por organização. A estrutura de usuários/equipes/tarefas está preparada no banco, mas as telas, convites, autenticação individual, permissões por projeto e isolamento de consultas precisam ser implementados e testados antes de cadastrar uma segunda organização ou inserir dados pessoais reais.
+
+Não considere a existência da coluna `organization_id` como isolamento de dados. Até a conclusão da autorização em todas as rotas e arquivos, mantenha uma única organização operacional e use dados fictícios em testes.
+
+### Próximas entregas
+
+1. Cadastro inicial seguro do proprietário e login individual com hash de senha.
+2. Gestão de organização, convites, membros, papéis e equipes.
+3. Gestão de tarefas com responsável, prazo, prioridade, status e histórico.
+4. Escopo obrigatório por organização em todas as rotas, consultas, APIs, anexos e downloads.
+5. Testes automatizados de acesso cruzado entre organizações e plano de backup/restauração.
 
 ## Dados e privacidade
 
