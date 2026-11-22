@@ -470,10 +470,6 @@ def tarefa_status(task_id):
         (org_id,task['project_id'],g.current_user['id'] if g.current_user else None,'task_status_changed','task',task_id,status,agora))
     d.commit(); return redirect(url_for('equipe'))
 
-@app.route('/sair', methods=['POST'])
-def sair():
-    session.clear()
-    return redirect(url_for('login'))
 
 @app.route('/')
 def index():
