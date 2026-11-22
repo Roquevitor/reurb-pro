@@ -178,7 +178,10 @@ function iniciarEm(nome){const f=document.createElement('form');f.method='post';
 fetch('/p/'+PID+'/mapa.json').then(r=>r.json()).then(d=>{
  // As bases têm tiles nativos até o nível 19. maxNativeZoom permite ampliar
  // além disso sem solicitar blocos inexistentes: o Leaflet amplia o último tile.
- const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:22,attribution:'Esri',keepBuffer:4,updateWhenZooming:false});
+ // A Esri pode devolver um tile de aviso ("Map data not yet available")
+ // em níveis altos mesmo com HTTP 200. Limitar o nível nativo a 17 faz o
+ // Leaflet ampliar a última imagem disponível, em vez de pedir tiles vazios.
+ const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:17,maxZoom:22,attribution:'Esri',keepBuffer:4,updateWhenZooming:false});
  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxNativeZoom:19,maxZoom:22,attribution:'© OSM',keepBuffer:4,updateWhenZooming:false});
  const center=Array.isArray(d.centro)&&d.centro.length===2?d.centro:[-13.7,-39.5];
  const m=L.map('map',{layers:[osm],zoomControl:true,scrollWheelZoom:true,zoomSnap:0.25,zoomDelta:0.5,minZoom:3,maxZoom:22}).setView(center, d.centro?17:5);
