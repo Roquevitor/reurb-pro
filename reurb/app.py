@@ -570,6 +570,20 @@ def projeto(pid):
 @app.route('/p/<int:pid>/salvar', methods=['POST'])
 def salvar(pid):
     d = db(); upd = {k: request.form[k] for k in PROJ if k in request.form}
+    for campo, minimo, maximo in (('centro_lat', -90, 90), ('centro_lon', -180, 180)):
+        if campo in upd:
+            bruto = (upd[campo] or '').strip().replace(',', '.')
+            if bruto:
+                try: numero = float(bruto)
+                except ValueError:
+                    aviso('Latitude e longitude devem ser números em graus decimais.', 'erro')
+                    return redirect(f'/p/{pid}#coords')
+                if not minimo <= numero <= maximo:
+                    aviso(f'Valor inválido para {campo.replace("centro_", "").upper()}.', 'erro')
+                    return redirect(f'/p/{pid}#coords')
+                upd[campo] = str(numero)
+            else:
+                upd[campo] = ''
     if 'nucleo_id' in upd:
         atual = d.execute('SELECT nucleo_id FROM projetos WHERE id=?', (pid,)).fetchone()
         if upd['nucleo_id'] and str(atual['nucleo_id'] or '') != upd['nucleo_id']: upd.update(campos_nucleo(d, upd['nucleo_id']))
@@ -702,8 +716,14 @@ def projeto_excluir(pid):
 def mapa(pid):
     p, vs, ps = carregar(pid); z = int(p['zona'])
     ll = [geo.to_latlon(z, v['e'], v['n']) for v in vs]
-    return json.dumps(dict(poly=ll, nomes=[v['nome'] for v in vs],
-        centro=[float(p['centro_lat']), float(p['centro_lon'])] if p.get('centro_lat') and p.get('centro_lon') else None,
+    centro = None
+    try:
+        if p.get('centro_lat') not in (None, '') and p.get('centro_lon') not in (None, ''):
+            centro = [float(str(p['centro_lat']).replace(',', '.')), float(str(p['centro_lon']).replace(',', '.'))]
+            if not (-90 <= centro[0] <= 90 and -180 <= centro[1] <= 180): centro = None
+    except (TypeError, ValueError):
+        centro = None
+    return json.dumps(dict(poly=ll, nomes=[v['nome'] for v in vs], centro=centro,
         pessoas=[dict(nome=q['nome'], tipo=q['tipo'], lat=q['lat'], lon=q['lon']) for q in ps if q['lat'] and q['lon']]))
 
 @app.route('/p/<int:pid>/drone', methods=['POST'])
