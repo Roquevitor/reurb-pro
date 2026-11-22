@@ -34,9 +34,9 @@ os.makedirs(UP, exist_ok=True); os.makedirs(CFG, exist_ok=True)
 def cfg(nome, padrao=None):
     p = os.path.join(CFG, nome)
     return p if os.path.exists(p) else (os.path.join(pecas.ASSETS, padrao or nome) if os.path.exists(os.path.join(pecas.ASSETS, padrao or nome)) else None)
-PCAMPOS = ['sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
+PCAMPOS = ['conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
 CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
-PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data'] + CRFCAMPOS
+PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data', 'centro_lat', 'centro_lon'] + CRFCAMPOS
 
 def db():
     if 'db' not in g:
@@ -703,6 +703,7 @@ def mapa(pid):
     p, vs, ps = carregar(pid); z = int(p['zona'])
     ll = [geo.to_latlon(z, v['e'], v['n']) for v in vs]
     return json.dumps(dict(poly=ll, nomes=[v['nome'] for v in vs],
+        centro=[float(p['centro_lat']), float(p['centro_lon'])] if p.get('centro_lat') and p.get('centro_lon') else None,
         pessoas=[dict(nome=q['nome'], tipo=q['tipo'], lat=q['lat'], lon=q['lon']) for q in ps if q['lat'] and q['lon']]))
 
 @app.route('/p/<int:pid>/drone', methods=['POST'])
