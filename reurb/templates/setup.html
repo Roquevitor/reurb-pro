@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block c %}
+<section style="max-width:560px;margin:42px auto">
+  <span class="eyebrow">CONFIGURAÇÃO INICIAL · UMA ÚNICA VEZ</span>
+  <h2>Criar conta proprietária</h2>
+  <p class="muted">Esta conta administrará a organização principal e poderá cadastrar os demais integrantes. O formulário deixa de funcionar depois da criação do primeiro usuário.</p>
+  {% if not token_configurado %}
+  <div class="notice">A variável <b>REURB_SETUP_TOKEN</b> ainda não está configurada ou possui menos de 24 caracteres. Configure-a no ambiente de hospedagem antes de continuar.</div>
+  {% endif %}
+  <form method="post" class="form-panel">
+    {{ csrf_token()|safe }}
+    <label>Token de configuração inicial</label><input type="password" name="token" required autocomplete="off">
+    <label>Nome completo</label><input name="nome" required maxlength="120">
+    <label>E-mail de acesso</label><input type="email" name="email" required maxlength="180" autocomplete="email">
+    <label>Senha (mínimo de 12 caracteres)</label><input type="password" name="senha" required minlength="12" autocomplete="new-password">
+    <button type="submit" {% if not token_configurado %}disabled{% endif %}>Criar conta proprietária</button>
+  </form>
+</section>
+{% endblock %}
