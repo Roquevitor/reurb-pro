@@ -297,8 +297,16 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
         for ln in lines:
             c.setFont('Helvetica-Bold', 7.5*sc); c.drawString(qx+7*mm, y, ln); y -= 3.4*mm*sc
         c.setFont('Helvetica', 7*sc)
-        for ln in [f"CPF: {p.get('cpf') or '—'}   Cad. imobiliário: {p.get('inscricao') or '—'}", f"Lado {i['lado']} · {p['v_ini']}→{p['v_fim']} · {_fmt(i['comp'])} m"]:
-            c.drawString(qx+7*mm, y, ln); y -= 3.1*mm*sc
+        natureza = p.get('tipo_confrontante') or ('via' if re.match(r'(?i)^(rua|avenida|travessa|estrada|pra[çc]a|alameda|rodovia|beco|ladeira|via)\\b', (p.get('nome') or '').strip()) else ('matricula' if p.get('matricula') and not p.get('nome') else 'pessoa'))
+        # CPF e inscrição imobiliária só são pertinentes a confrontante pessoa.
+        if natureza == 'pessoa':
+            detalhes = []
+            if p.get('cpf'): detalhes.append(f"CPF/CNPJ: {p['cpf']}")
+            if p.get('inscricao'): detalhes.append(f"Cad. imobiliário: {p['inscricao']}")
+            if detalhes:
+                c.drawString(qx+7*mm, y, '   '.join(detalhes)); y -= 3.1*mm*sc
+        c.drawString(qx+7*mm, y, f"Lado {i['lado']} · {p.get('v_ini') or '?'}→{p.get('v_fim') or '?'} · {_fmt(i['comp'])} m")
+        y -= 3.1*mm*sc
         y -= 2.6*mm*sc
     yt = dy0+tab_h; c.line(qx, yt+4*mm, qx+qw, yt+4*mm)
     c.setFont('Helvetica-Bold', 8.5); c.drawString(qx, yt, 'QUADRO DE COORDENADAS – SIRGAS 2000, UTM '+str(proj['zona'])+'S'); y = yt-rh-1*mm
