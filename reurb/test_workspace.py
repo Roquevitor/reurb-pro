@@ -18,7 +18,7 @@ class WorkspaceMigrationTests(unittest.TestCase):
         for table in LEGACY_TABLES:
             if table == "projetos":
                 continue
-            self.conn.execute(f"CREATE TABLE {table}(id INTEGER PRIMARY KEY, payload TEXT)")
+            self.conn.execute(f"CREATE TABLE {table}(id INTEGER PRIMARY KEY, proj_id INTEGER, payload TEXT)")
         self.conn.execute("INSERT INTO projetos(id,nome) VALUES(7,'Projeto legado')")
         self.conn.execute("INSERT INTO pessoas(id,payload) VALUES(9,'Beneficiário legado')")
         self.conn.commit()
