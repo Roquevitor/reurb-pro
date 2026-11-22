@@ -321,6 +321,30 @@ def login():
     return render_template('login.html', primeiro_acesso=(total_users == 0))
 
 
+@app.route('/minha-conta/senha', methods=['GET', 'POST'])
+def alterar_senha():
+    if not g.current_user:
+        abort(403)
+    d=db()
+    if request.method == 'POST':
+        atual=request.form.get('senha_atual','')
+        nova=request.form.get('senha_nova','')
+        confirmar=request.form.get('confirmar','')
+        user=d.execute('SELECT password_hash FROM users WHERE id=?',(g.current_user['id'],)).fetchone()
+        if not user or not check_password_hash(user['password_hash'],atual):
+            aviso('A senha atual não confere.', 'erro')
+        elif len(nova)<12:
+            aviso('A nova senha deve ter pelo menos 12 caracteres.', 'erro')
+        elif nova!=confirmar:
+            aviso('A confirmação da nova senha não confere.', 'erro')
+        else:
+            d.execute('UPDATE users SET password_hash=? WHERE id=?',(generate_password_hash(nova),g.current_user['id']))
+            d.commit()
+            aviso('Senha alterada com sucesso.')
+            return redirect(url_for('index'))
+    return render_template('senha.html')
+
+
 @app.route('/sair', methods=['POST'])
 def sair():
     session.clear()
