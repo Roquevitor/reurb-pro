@@ -145,7 +145,7 @@ window.salva=()=>{ops.forEach(o=>{if(o.t==='poli'&&o.p.length>2)o.fechado=true})
 <div class="tw"><table><tr><th>Cadastro</th><th>Detalhes</th><th></th></tr>{% for q in ps %}<tr><td><span class="tag">{{q.tipo}}</span> {% if q.tipo=='confrontante' %}<small>{{q.tipo_confrontante or 'pessoa'}}</small> {% endif %}<b>{{q.nome or ('Matrícula ' ~ q.matricula if q.matricula else 'sem identificação')}}</b></td><td><small>{% if q.tipo=='confrontante' %}{{q.v_ini or '?'}} → {{q.v_fim or '?'}} · {% if q.tipo_confrontante=='matricula' %}Matrícula {{q.matricula}} · CNS {{q.cns}}{% elif q.tipo_confrontante=='via' %}Via pública{% else %}CPF/CNPJ {{q.cpf or '—'}}{% endif %}{% else %}CPF {{q.cpf or '—'}} · Cad. imob. {{q.inscricao or '—'}}{% endif %}</small></td><td><div class="row-acts"><button type="button" class="btn small secondary" onclick="editar({{q.id}})">✏️ Editar</button>{% if q.cadastro_id %}<form method="post" action="/p/{{p.id}}/pessoa/{{q.id}}/sincronizar"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn small secondary" title="Copiar do cadastro de pessoas os dados atuais">↻ Do cadastro</button></form>{% endif %}<form method="post" action="/p/{{p.id}}/del/{{q.id}}" onsubmit="return confirm('Remover do projeto?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn small danger">🗑</button></form></div></td></tr>{% else %}<tr><td colspan="3">Nenhum cadastro neste projeto ainda.</td></tr>{% endfor %}</table></div></section>
 
 <section id="mapa"><h2>Mapa do imóvel</h2><p class="hint">Toque em um vértice para defini-lo como <b>V1</b> (ponto inicial).</p><div id="map"></div></section>
-<section><h2>Excluir projeto</h2><form method="post" action="/p/{{p.id}}/excluir" onsubmit="return confirm('Excluir este projeto, vértices, pessoas e fotos? Não dá para desfazer.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" style="margin-top:0">🗑 Excluir este projeto</button></form></section>
+<section id="excluir"><h2>Excluir projeto</h2><form method="post" action="/p/{{p.id}}/excluir" onsubmit="return confirm('Excluir este projeto, vértices, pessoas e fotos? Não dá para desfazer.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" style="margin-top:0">🗑 Excluir este projeto</button></form></section>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const PESSOAS={{ps|tojson}}, RUAS={{ruas|tojson}}, PID={{p.id}};
@@ -191,11 +191,11 @@ fetch('/p/'+PID+'/mapa.json').then(r=>r.json()).then(d=>{
 (()=> {
  const main=document.querySelector('main'), tabs=document.getElementById('workflowTabs');
  if(!main||!tabs)return;
- const order=['pessoas','imovel','coords','mapa','dados','plantas','crf','drone','fachada','docs'];
+ const order=['pessoas','imovel','coords','mapa','dados','plantas','crf','drone','fachada','docs','excluir'];
  const sections=order.map(id=>document.getElementById(id)).filter(Boolean);
  const groups={
   pessoas:['pessoas'], imovel:['imovel'], confrontantes:['pessoas'], coords:['coords','mapa'],
-  dados:['dados'], plantas:['plantas','fachada','drone'], crf:['crf'], docs:['docs']
+  dados:['dados'], plantas:['plantas','fachada','drone'], crf:['crf'], docs:['docs','excluir']
  };
  // Os confrontantes são selecionados pelo filtro do próprio formulário na etapa correspondente.
  function show(step){
