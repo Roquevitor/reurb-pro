@@ -4,7 +4,7 @@ load_dotenv()
 from flask import Flask, request, redirect, render_template, send_file, g, url_for, session, abort
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
-import io, zipfile, geo, docs, crf, pecas, geoimport
+import io, zipfile, geo, docs, crf, pecas, geoimport, workspace
 
 app = Flask(__name__)
 APP_ENV = os.environ.get('APP_ENV', 'development').lower()
@@ -81,6 +81,9 @@ def db():
         cc = {r[1] for r in g.db.execute('PRAGMA table_info(cadastro_pessoas)')}
         for c_ in CAD:
             if c_ not in cc: g.db.execute(f'ALTER TABLE cadastro_pessoas ADD COLUMN {c_} TEXT')
+        # Migra os registros existentes para a organização principal sem apagar dados.
+        # A autorização multiempresa só será ativada após o escopo das rotas.
+        workspace.ensure_schema(g.db)
         g.db.commit()
     return g.db
 
