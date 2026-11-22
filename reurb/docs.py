@@ -215,8 +215,12 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
     dx0, dy0, dw, dh = 14*mm, 62*mm, 270*mm, 214*mm
     mnE, mxE = min(p[0] for p in pts), max(p[0] for p in pts); mnN, mxN = min(p[1] for p in pts), max(p[1] for p in pts)
     w, h = max(mxE-mnE, 1), max(mxN-mnN, 1)
-    esc_min = max(w*1000/(dw*.62/mm), h*1000/(dh*.62/mm))  # aproxima o enquadramento: lote ocupa cerca de 62% do quadro
-    esc = next(s for s in [100, 200, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000, 25000] if s >= esc_min)
+    # Amplia o croqui: o maior lado do lote ocupa aproximadamente 82% do quadro,
+    # preservando margem para rótulos e vértices. Escalas intermediárias evitam
+    # saltos excessivos (por exemplo, de 1:250 diretamente para 1:500).
+    ocupacao = .82
+    esc_min = max(w*1000/(dw*ocupacao/mm), h*1000/(dh*ocupacao/mm))
+    esc = next(s for s in [50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 25000] if s >= esc_min)
     k = (1000/esc)*mm; Wm, Hm = dw/k, dh/k; cxm, cym = (mnE+mxE)/2, (mnN+mxN)/2
     e0, n0 = cxm-Wm/2, cym-Hm/2
     P = lambda p: (dx0+(p[0]-e0)*k, dy0+(p[1]-n0)*k)
