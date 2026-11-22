@@ -24,7 +24,7 @@ app.config.update(
 )
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 csrf = CSRFProtect(app)
-SENHA = SENHA or 'reurb123'  # somente para execução local; produção exige variável própria
+SENHA = SENHA or ('reurb123' if APP_ENV != 'production' else None)  # compatibilidade local; nunca usar senha padrão em produção
 DB = os.environ.get('REURB_DB', 'reurb.db')
 CRFCAMPOS = ['crf_numero', 'prefeitura_cnpj', 'prefeitura_end', 'prefeito_nome', 'prefeito_qualif', 'lei_municipal', 'insc_cadastral', 'rua', 'numero', 'bairro', 'cep', 'localizacao', 'insc_reduzida', 'tipo_imovel', 'nucleo', 'nucleo_origem', 'profissao_resp', 'rrt', 'construcao', 'valor_lote', 'valor_edif', 'ref_cub', 'edital', 'titulo', 'certidoes_benef', 'rrt_levant', 'rrt_imovel', 'procurador_nome', 'procurador_qualificacao', 'procurador_procuracao', 'ocupacao', 'finalidade', 'padrao', 'tipo_obra', 'area_construida', 'ambientes', 'ref_cub_edif', 'area_informada', 'perimetro_informado']
 MUNCAMPOS = ['municipio', 'prefeitura_cnpj', 'prefeitura_end', 'prefeito_nome', 'prefeito_qualif', 'lei_municipal', 'tecnico', 'conselho', 'registro', 'profissao_resp', 'zona', 'modalidade', 'titulo']
@@ -369,6 +369,21 @@ def equipe():
                 d.execute('INSERT INTO teams(organization_id,name,description,created_at) VALUES(?,?,?,?)',
                     (org_id,nome,request.form.get('description','').strip(),agora))
                 d.commit(); aviso('Equipe criada.')
+        elif action == 'integrante_equipe':
+            _require_owner()
+            try:
+                team_id = int(request.form.get('team_id',''))
+                member_id = int(request.form.get('user_id',''))
+            except (TypeError,ValueError):
+                team_id = member_id = 0
+            team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone()
+            member = d.execute('SELECT user_id FROM memberships WHERE user_id=? AND organization_id=? AND is_active=1',(member_id,org_id)).fetchone()
+            if team and member:
+                d.execute('INSERT OR IGNORE INTO team_members(team_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                    (team_id,member_id,request.form.get('team_role','member'),agora))
+                d.commit(); aviso('Integrante vinculado à equipe.')
+            else:
+                aviso('Equipe ou integrante inválido.', 'erro')
         elif action == 'tarefa':
             titulo = request.form.get('title','').strip()
             try: project_id = int(request.form.get('project_id',''))
@@ -380,12 +395,18 @@ def equipe():
             if not titulo or not project or (assignee and not valid_assignee):
                 aviso('Informe uma tarefa, um projeto válido e um responsável da organização.', 'erro')
             else:
-                d.execute("""INSERT INTO tasks(organization_id,project_id,title,description,priority,
+                try: team_id = int(request.form.get('team_id','')) or None
+            except (TypeError,ValueError): team_id = None
+            valid_team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone() if team_id else None
+            if team_id and not valid_team:
+                aviso('A equipe selecionada não pertence à organização.', 'erro')
+                return redirect(url_for('equipe'))
+            d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
                     assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (org_id,project_id,titulo,request.form.get('description','').strip(),
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (org_id,project_id,team_id,titulo,request.form.get('description','').strip(),
                      request.form.get('priority','normal') if request.form.get('priority') in ('low','normal','high','urgent') else 'normal',
-                     assignee, getattr(g.current_user,'id',None) if g.current_user else None,
+                     assignee, g.current_user['id'] if g.current_user else None,
                      request.form.get('due_date') or None,agora,agora))
                 d.commit(); aviso('Tarefa criada e vinculada ao projeto.')
         return redirect(url_for('equipe'))
@@ -393,13 +414,14 @@ def equipe():
         FROM users u JOIN memberships m ON m.user_id=u.id
         WHERE m.organization_id=? ORDER BY u.name""",(org_id,)).fetchall()
     equipes = d.execute('SELECT * FROM teams WHERE organization_id=? AND is_active=1 ORDER BY name',(org_id,)).fetchall()
+    equipe_membros = d.execute('SELECT tm.team_id,u.name,u.id FROM team_members tm JOIN users u ON u.id=tm.user_id JOIN teams t ON t.id=tm.team_id WHERE t.organization_id=? ORDER BY t.name,u.name',(org_id,)).fetchall()
     projetos = d.execute('SELECT id,nome,municipio FROM projetos WHERE organization_id=? ORDER BY nome',(org_id,)).fetchall()
     tarefas = d.execute("""SELECT t.*,p.nome AS projeto_nome,u.name AS responsavel
         FROM tasks t JOIN projetos p ON p.id=t.project_id
         LEFT JOIN users u ON u.id=t.assigned_user_id
         WHERE t.organization_id=? ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'review' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'todo' THEN 3 ELSE 4 END,
         COALESCE(t.due_date,'9999-12-31'),t.id DESC""",(org_id,)).fetchall()
-    return render_template('equipe.html', membros=membros, equipes=equipes, projetos=projetos, tarefas=tarefas, pode_administrar=_is_owner())
+    return render_template('equipe.html', membros=membros, equipes=equipes, equipe_membros=equipe_membros, projetos=projetos, tarefas=tarefas, pode_administrar=_is_owner())
 
 
 @app.route('/equipe/tarefa/<int:task_id>/status', methods=['POST'])
