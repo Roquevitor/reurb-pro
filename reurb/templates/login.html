@@ -3,7 +3,7 @@
   <span class="eyebrow">ACESSO À PLATAFORMA</span>
   <h2>Entrar no REURB Pro</h2>
   <form method="post">
-    {{ csrf_token()|safe }}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>E-mail</label>
     <input type="email" name="email" autocomplete="username" required autofocus placeholder="voce@empresa.com.br">
     <label>Senha</label>
