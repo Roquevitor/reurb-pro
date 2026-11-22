@@ -1,17 +1,18 @@
-import os, sqlite3, json, datetime, re
+import os, sqlite3, json, datetime, re, hmac
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, request, redirect, render_template, send_file, g, url_for, session, abort
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
 import io, zipfile, geo, docs, crf, pecas, geoimport, workspace
 
 app = Flask(__name__)
 APP_ENV = os.environ.get('APP_ENV', 'development').lower()
 SECRET_KEY = os.environ.get('SECRET_KEY')
 SENHA = os.environ.get('REURB_SENHA')
-if APP_ENV == 'production' and (not SECRET_KEY or not SENHA):
-    raise RuntimeError('Em produção, configure SECRET_KEY e REURB_SENHA nas variáveis de ambiente.')
+if APP_ENV == 'production' and not SECRET_KEY:
+    raise RuntimeError('Em produção, configure SECRET_KEY nas variáveis de ambiente.')
 app.secret_key = SECRET_KEY or 'chave-local-apenas-desenvolvimento'
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -91,7 +92,11 @@ def aviso(msg, cat='ok'): session['_msg'] = [cat, msg]
 
 @app.context_processor
 def _ctx():
-    return dict(flash_msg=session.pop('_msg', None))
+    return dict(
+        flash_msg=session.pop('_msg', None),
+        current_user=getattr(g, 'current_user', None),
+        current_org_id=getattr(g, 'organization_id', None),
+    )
 
 @app.template_filter('rua')
 def _rua(r): return geoimport.nome_completo(r['tipo'], r['nome'])
@@ -108,10 +113,28 @@ def close(_):
 
 @app.before_request
 def auth():
-    if request.endpoint in ('login', 'static'):
+    if request.endpoint in ('login', 'setup', 'static'):
         return
-    if not session.get('ok'):
-        return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
+    d = db()
+    total_users = d.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if session.get('user_id'):
+        member = d.execute("""SELECT u.id,u.name,u.email,m.role,m.organization_id,o.name AS organization_name
+            FROM users u JOIN memberships m ON m.user_id=u.id
+            JOIN organizations o ON o.id=m.organization_id
+            WHERE u.id=? AND u.is_active=1 AND m.is_active=1 AND o.status='active'
+            ORDER BY m.id LIMIT 1""", (session['user_id'],)).fetchone()
+        if member:
+            g.current_user = member
+            g.organization_id = member['organization_id']
+            return
+        session.clear()
+    # Compatibilidade temporária para a instalação antiga. Assim que o primeiro
+    # proprietário individual for criado, a senha compartilhada deixa de funcionar.
+    if total_users == 0 and session.get('legacy_ok'):
+        g.current_user = None
+        g.organization_id = d.execute("SELECT id FROM organizations WHERE slug='organizacao-principal'").fetchone()[0]
+        return
+    return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
 
 @app.after_request
 def security_headers(response):
@@ -236,15 +259,164 @@ def cartorios_da_prefeitura(pref_id):
     rows=db().execute("""SELECT c.id,c.nome,c.cns,c.atribuicao FROM cartorios c LEFT JOIN prefeitura_cartorios pc ON pc.cartorio_id=c.id WHERE pc.prefeitura_id=? OR c.municipio=(SELECT municipio FROM prefeituras WHERE id=?) GROUP BY c.id ORDER BY c.nome""",(pref_id,pref_id)).fetchall()
     return json.dumps([dict(x) for x in rows],ensure_ascii=False)
 
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    d = db()
+    if d.execute('SELECT COUNT(*) FROM users').fetchone()[0]:
+        return redirect(url_for('login'))
+    setup_token = os.environ.get('REURB_SETUP_TOKEN', '')
+    if request.method == 'POST':
+        supplied = request.form.get('token', '')
+        nome = request.form.get('nome', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        senha = request.form.get('senha', '')
+        if not setup_token or len(setup_token) < 24 or not hmac.compare_digest(supplied, setup_token):
+            aviso('Token inicial inválido ou não configurado. Configure REURB_SETUP_TOKEN com pelo menos 24 caracteres.', 'erro')
+        elif not nome or '@' not in email or len(senha) < 12:
+            aviso('Informe nome, e-mail válido e senha com pelo menos 12 caracteres.', 'erro')
+        else:
+            agora = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+            try:
+                cur = d.execute('INSERT INTO users(name,email,password_hash,created_at) VALUES(?,?,?,?)',
+                    (nome, email, generate_password_hash(senha), agora))
+                uid = cur.lastrowid
+                org = d.execute("SELECT id FROM organizations WHERE slug='organizacao-principal'").fetchone()
+                d.execute('INSERT INTO memberships(organization_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                    (org['id'], uid, 'owner', agora))
+                d.execute('INSERT INTO activity_events(organization_id,user_id,event_type,details,created_at) VALUES(?,?,?,?,?)',
+                    (org['id'], uid, 'owner_created', 'Primeiro proprietário da organização', agora))
+                d.commit()
+                session.clear(); session.permanent = True; session['user_id'] = uid
+                aviso('Conta proprietária criada. A partir de agora, o acesso é individual.')
+                return redirect(url_for('index'))
+            except sqlite3.IntegrityError:
+                d.rollback()
+                aviso('Este e-mail já está cadastrado.', 'erro')
+    return render_template('setup.html', token_configurado=bool(setup_token and len(setup_token) >= 24))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST' and request.form.get('senha') == SENHA:
-        session.clear(); session.permanent = True; session['ok'] = True
-        destino = request.args.get('next', '/')
-        if not destino.startswith('/') or destino.startswith('//'):
-            destino = '/'
-        return redirect(destino)
-    return render_template('login.html')
+    d = db()
+    total_users = d.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        senha = request.form.get('senha', '')
+        user = d.execute('SELECT * FROM users WHERE email=? AND is_active=1', (email,)).fetchone() if total_users else None
+        if user and check_password_hash(user['password_hash'], senha):
+            member = d.execute('SELECT organization_id FROM memberships WHERE user_id=? AND is_active=1 ORDER BY id LIMIT 1', (user['id'],)).fetchone()
+            if member:
+                session.clear(); session.permanent = True; session['user_id'] = user['id']
+                d.execute('UPDATE users SET last_login_at=? WHERE id=?',
+                    (datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), user['id']))
+                d.commit()
+                destino = request.args.get('next', '/')
+                if not destino.startswith('/') or destino.startswith('//'):
+                    destino = '/'
+                return redirect(destino)
+        elif total_users == 0 and SENHA and hmac.compare_digest(senha, SENHA):
+            session.clear(); session.permanent = True; session['legacy_ok'] = True
+            return redirect(url_for('index'))
+        aviso('E-mail ou senha incorretos.', 'erro')
+    return render_template('login.html', primeiro_acesso=(total_users == 0))
+
+
+@app.route('/sair', methods=['POST'])
+def sair():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+def _is_owner():
+    return bool(getattr(g, 'current_user', None) and g.current_user['role'] == 'owner')
+
+
+def _require_owner():
+    if not _is_owner():
+        abort(403)
+
+
+@app.route('/equipe', methods=['GET', 'POST'])
+def equipe():
+    d = db()
+    org_id = g.organization_id
+    if request.method == 'POST':
+        action = request.form.get('action')
+        agora = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+        if action == 'membro':
+            _require_owner()
+            nome = request.form.get('nome', '').strip()
+            email = request.form.get('email', '').strip().lower()
+            senha = request.form.get('senha', '')
+            papel = request.form.get('role', 'engineer')
+            papeis = {'engineer','field_technician','surveyor','registral_assistant','reviewer'}
+            if not nome or '@' not in email or len(senha) < 12 or papel not in papeis:
+                aviso('Confira nome, e-mail, função e senha (mínimo de 12 caracteres).', 'erro')
+            else:
+                try:
+                    cur = d.execute('INSERT INTO users(name,email,password_hash,created_at) VALUES(?,?,?,?)',
+                        (nome,email,generate_password_hash(senha),agora))
+                    d.execute('INSERT INTO memberships(organization_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                        (org_id,cur.lastrowid,papel,agora))
+                    d.commit()
+                    aviso('Membro cadastrado. Oriente a pessoa a trocar a senha após o primeiro acesso.')
+                except sqlite3.IntegrityError:
+                    d.rollback(); aviso('Este e-mail já possui cadastro.', 'erro')
+        elif action == 'equipe':
+            _require_owner()
+            nome = request.form.get('nome', '').strip()
+            if nome:
+                d.execute('INSERT INTO teams(organization_id,name,description,created_at) VALUES(?,?,?,?)',
+                    (org_id,nome,request.form.get('description','').strip(),agora))
+                d.commit(); aviso('Equipe criada.')
+        elif action == 'tarefa':
+            titulo = request.form.get('title','').strip()
+            try: project_id = int(request.form.get('project_id',''))
+            except (TypeError,ValueError): project_id = 0
+            try: assignee = int(request.form.get('assigned_user_id','')) or None
+            except (TypeError,ValueError): assignee = None
+            project = d.execute('SELECT id FROM projetos WHERE id=? AND organization_id=?',(project_id,org_id)).fetchone()
+            valid_assignee = d.execute('SELECT user_id FROM memberships WHERE user_id=? AND organization_id=? AND is_active=1',(assignee,org_id)).fetchone() if assignee else None
+            if not titulo or not project or (assignee and not valid_assignee):
+                aviso('Informe uma tarefa, um projeto válido e um responsável da organização.', 'erro')
+            else:
+                d.execute("""INSERT INTO tasks(organization_id,project_id,title,description,priority,
+                    assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (org_id,project_id,titulo,request.form.get('description','').strip(),
+                     request.form.get('priority','normal') if request.form.get('priority') in ('low','normal','high','urgent') else 'normal',
+                     assignee, getattr(g.current_user,'id',None) if g.current_user else None,
+                     request.form.get('due_date') or None,agora,agora))
+                d.commit(); aviso('Tarefa criada e vinculada ao projeto.')
+        return redirect(url_for('equipe'))
+    membros = d.execute("""SELECT u.id,u.name,u.email,m.role,m.is_active
+        FROM users u JOIN memberships m ON m.user_id=u.id
+        WHERE m.organization_id=? ORDER BY u.name""",(org_id,)).fetchall()
+    equipes = d.execute('SELECT * FROM teams WHERE organization_id=? AND is_active=1 ORDER BY name',(org_id,)).fetchall()
+    projetos = d.execute('SELECT id,nome,municipio FROM projetos WHERE organization_id=? ORDER BY nome',(org_id,)).fetchall()
+    tarefas = d.execute("""SELECT t.*,p.nome AS projeto_nome,u.name AS responsavel
+        FROM tasks t JOIN projetos p ON p.id=t.project_id
+        LEFT JOIN users u ON u.id=t.assigned_user_id
+        WHERE t.organization_id=? ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'review' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'todo' THEN 3 ELSE 4 END,
+        COALESCE(t.due_date,'9999-12-31'),t.id DESC""",(org_id,)).fetchall()
+    return render_template('equipe.html', membros=membros, equipes=equipes, projetos=projetos, tarefas=tarefas, pode_administrar=_is_owner())
+
+
+@app.route('/equipe/tarefa/<int:task_id>/status', methods=['POST'])
+def tarefa_status(task_id):
+    d=db(); org_id=g.organization_id
+    task=d.execute('SELECT * FROM tasks WHERE id=? AND organization_id=?',(task_id,org_id)).fetchone()
+    if not task: abort(404)
+    if not _is_owner() and (not g.current_user or task['assigned_user_id'] != g.current_user['id']):
+        abort(403)
+    status=request.form.get('status')
+    if status not in ('todo','in_progress','review','done','blocked'): abort(400)
+    agora=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+    d.execute('UPDATE tasks SET status=?,completed_at=?,updated_at=? WHERE id=? AND organization_id=?',
+        (status,agora if status=='done' else None,agora,task_id,org_id))
+    d.execute('INSERT INTO activity_events(organization_id,project_id,user_id,event_type,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?,?)',
+        (org_id,task['project_id'],g.current_user['id'] if g.current_user else None,'task_status_changed','task',task_id,status,agora))
+    d.commit(); return redirect(url_for('equipe'))
 
 @app.route('/sair', methods=['POST'])
 def sair():
