@@ -20,4 +20,4 @@ jobs:
         run: python -m compileall -q reurb
       - name: Run workspace migration tests
         working-directory: reurb
-        run: python -m unittest -v test_workspace.py
+        run: python -m unittest discover -v -p 'test_*.py'
