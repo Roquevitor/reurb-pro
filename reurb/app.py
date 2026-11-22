@@ -35,7 +35,7 @@ def cfg(nome, padrao=None):
     p = os.path.join(CFG, nome)
     return p if os.path.exists(p) else (os.path.join(pecas.ASSETS, padrao or nome) if os.path.exists(os.path.join(pecas.ASSETS, padrao or nome)) else None)
 PCAMPOS = ['conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
-CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
+CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
 PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data', 'centro_lat', 'centro_lon'] + CRFCAMPOS
 
 def db():
