@@ -211,7 +211,7 @@ fetch('/p/'+PID+'/mapa.json').then(r=>r.json()).then(d=>{
  const requested=location.hash.replace('#','');
  const initial=Object.keys(groups).find(k=>groups[k].includes(requested))||'pessoas';
  show(initial);
- window.reurbEtapa=show;window.aplicarTecnico=()=>{const s=document.getElementById('selTecnico');if(!s||!s.selectedOptions[0])return;const o=s.selectedOptions[0];document.getElementById('campoTecnico').value=o.dataset.nome||'';document.getElementById('campoProfissaoResp').value=o.dataset.profissao||'';document.getElementById('campoConselho').value=o.dataset.conselho||'';document.getElementById('campoRegistro').value=o.dataset.registro||'';};
+ window.reurbEtapa=show;window.aplicarTecnico=()=>{const s=document.getElementById('selTecnico');if(!s||!s.selectedOptions[0])return;const o=s.selectedOptions[0];const set=(n,v)=>{const el=document.querySelector('[name="'+n+'"]');if(el)el.value=v||''};set('tecnico',o.dataset.nome);set('profissao_resp',o.dataset.profissao);set('conselho',o.dataset.conselho);set('registro',o.dataset.registro);};
 })();
 </script>
 {% endblock %}
