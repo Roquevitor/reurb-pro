@@ -1,5 +1,22 @@
-{% extends 'base.html' %}{% block nav %}<nav class="sec"><div class="in"><a href="#docs">Documentos</a><a href="#fachada">Fachada</a><a href="#drone">Drone</a><a href="#imovel">Imóvel</a><a href="#coords">Coordenadas</a><a href="#dados">Projeto</a><a href="#crf">CRF</a><a href="#pessoas">Pessoas</a></div></nav>{% endblock %}{% block c %}
-<div class="phase-shell"><div class="phase-head"><div><span class="eyebrow">FLUXO DO PROJETO</span><h1>Construção por etapas</h1><p>Preencha no seu ritmo. Você pode avançar, voltar ou pular qualquer fase.</p></div><span class="phase-count">{{vs|length}} vértices · {{ps|length}} cadastros</span></div><div class="phase-nav"><a href="#pessoas"><b>01</b><span>Beneficiários</span></a><a href="#imovel"><b>02</b><span>Imóvel</span></a><a href="#coords"><b>03</b><span>Vértices</span></a><a href="#pessoas"><b>04</b><span>Confrontantes</span></a><a href="#plantas"><b>05</b><span>Plantas e CRF</span></a></div></div>
+{% extends 'base.html' %}{% block nav %}<nav class="sec"><div class="in"><a href="#docs">Documentos</a><a href="#fachada">Fachada</a><a href="#drone">Drone</a><a href="#imovel">Imóvel</a><a href="#coords">Coordenadas</a><a href="#dados">Projeto</a><a href="#crf">CRF</a><a href="#pessoas">Pessoas</a></div></nav><style>
+.phase-nav{grid-template-columns:repeat(4,minmax(0,1fr))}
+.phase-nav button{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid var(--line);border-radius:11px;text-decoration:none;color:var(--green);font-size:12px;font-weight:700;background:#fafcfb;cursor:pointer;text-align:left}
+.phase-nav button.active{background:#e8f2ec;border-color:#83ad93;box-shadow:inset 0 0 0 1px #83ad93}
+.phase-nav button b{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#e8f0eb;color:var(--green2);flex:0 0 auto}
+[hidden]{display:none!important}
+#map{height:520px;min-height:380px;isolation:isolate}
+@media(max-width:620px){.phase-nav{grid-template-columns:repeat(2,minmax(0,1fr))}#map{height:380px}}
+</style>
+{% endblock %}{% block c %}
+<div class="phase-shell"><div class="phase-head"><div><span class="eyebrow">FLUXO DO PROJETO</span><h1>Construção por etapas</h1><p>Preencha no seu ritmo. Você pode avançar, voltar ou pular qualquer fase.</p></div><span class="phase-count">{{vs|length}} vértices · {{ps|length}} cadastros</span></div><div class="phase-nav" id="workflowTabs">
+<button type="button" data-step="pessoas"><b>01</b><span>Pessoas</span></button>
+<button type="button" data-step="imovel"><b>02</b><span>Imóvel</span></button>
+<button type="button" data-step="confrontantes"><b>03</b><span>Confrontantes</span></button>
+<button type="button" data-step="coords"><b>04</b><span>Mapa e coordenadas</span></button>
+<button type="button" data-step="dados"><b>05</b><span>Projeto</span></button>
+<button type="button" data-step="plantas"><b>06</b><span>Plantas</span></button>
+<button type="button" data-step="crf"><b>07</b><span>CRF e documentação</span></button>
+<button type="button" data-step="docs"><b>08</b><span>Conferência final</span></button></div></div>
 <section id="docs"><h2>{{p.nome}}</h2>
 <div class="institution-banner"><div><span>Prefeitura responsável</span><strong>{{prefeitura.nome if prefeitura else 'Não vinculada'}}</strong></div><div><span>Cartório competente</span><strong>{{cartorio.nome if cartorio else 'Não vinculado'}}</strong><small>{{('CNS '+cartorio.cns) if cartorio and cartorio.cns else ''}}</small></div><div><span>Município</span><strong>{{p.municipio or '—'}}</strong></div><div><span>Situação</span><strong>{{p.status or 'Em planejamento'}}</strong></div></div>
 
@@ -67,7 +84,14 @@ window.salva=()=>{ops.forEach(o=>{if(o.t==='poli'&&o.p.length>2)o.fechado=true})
 <div><label>Obra</label><select name="tipo_obra">{% for o in ['construída','ampliada','demolida'] %}<option {{'selected' if p.tipo_obra==o}}>{{o}}</option>{% endfor %}</select></div></div>
 <label>Ambientes (um por linha: nome: área). Use "# Pavimento" para separar andares. "área aberta" não conta como construída</label>
 <textarea name="ambientes" rows="8" placeholder="salão comercial: 33,77&#10;banheiro: 2,26&#10;área aberta: 41,80&#10;paredes internas: 12,95">{{p.ambientes or ''}}</textarea><button>Salvar imóvel</button></form></section>
-<section id="coords"><h2>1. Coordenadas (RTK – UTM / KML)</h2>
+<section id="coords"><h2>Coordenadas geográficas do centro do terreno</h2>
+<p class="hint">Informe a latitude e longitude do ponto central do imóvel, se o levantamento já fornecer essas coordenadas. Isso será usado como referência inicial do mapa, sem substituir os vértices do perímetro.</p>
+<form method="post" action="/p/{{p.id}}/salvar" class="opt">{{ csrf_token()|safe }}
+<input type="hidden" name="_ancora" value="coords">
+<div class="g"><div><label>Latitude do centro (graus decimais)</label><input name="centro_lat" value="{{p.centro_lat or ''}}" placeholder="-13.XXXXXX" inputmode="decimal"></div>
+<div><label>Longitude do centro (graus decimais)</label><input name="centro_lon" value="{{p.centro_lon or ''}}" placeholder="-39.XXXXXX" inputmode="decimal"></div></div>
+<button>Salvar coordenadas do centro</button></form>
+<h2>Vértices do perímetro (RTK – UTM / KML)</h2>
 <form method="post" action="/p/{{p.id}}/coords" enctype="multipart/form-data">{{ csrf_token()|safe }}
 <div class="g"><div><label>Prefixo dos vértices (quando o arquivo não tem nomes)</label><input name="prefixo" value="V"></div><div><label>Arquivo do coletor (.txt, .csv, .rtf) ou do Google Earth (.kml / .kmz)</label><input type="file" name="arq" accept=".txt,.csv,.xyz,.rtf,.kml,.kmz"></div></div>
 <div class="opt"><b>Se o arquivo for KML — como numerar os pontos</b><div class="g"><div><label>V1 começa em</label><select name="inicio_kml"><option value="sudoeste" selected>{{modos['sudoeste'][0]}} — recomendado</option>{% for k,m in modos.items() if k!='sudoeste' %}<option value="{{k}}">{{m[0]}}</option>{% endfor %}<option value="primeiro">Primeiro ponto do arquivo (como veio)</option></select></div><div><label>Sentido</label><select name="sentido_kml"><option value="manter">Manter o sentido do arquivo</option><option value="horario">Horário</option><option value="antihorario">Anti-horário</option></select></div></div>
@@ -106,14 +130,21 @@ window.salva=()=>{ops.forEach(o=>{if(o.t==='poli'&&o.p.length>2)o.fechado=true})
 <div class="g" data-t="confrontante" data-n="matricula"><div><label>Número da matrícula / transcrição</label><input name="matricula" placeholder="Ex.: 1.234"></div><div><label>CNS da serventia</label><input name="cns" placeholder="Ex.: 00.825-0"></div></div>
 <div class="g" data-t="confrontante" data-n="pessoa"><div><label>Descrição do imóvel confrontante</label><input name="descricao" placeholder="Ex.: imóvel residencial situado na Rua X"></div><div><label>Condição</label><select name="condicao"><option value="">em posse de</option><option>em propriedade de</option></select></div><div><label>Matrícula (se houver)</label><input name="matricula"></div><div><label>CNS (se houver)</label><input name="cns"></div><div><label>Data da notificação pessoal</label><input name="notificacao" placeholder="13/05/2026"></div><div><label>Certidões / buscas / observações</label><input name="certidoes"></div></div>
 <div class="g" data-t="confrontante"><div><label>Confronta do vértice</label><select name="v_ini"><option value=""></option>{% for v in vs %}<option>{{v.nome}}</option>{% endfor %}</select></div><div><label>Até o vértice</label><select name="v_fim"><option value=""></option>{% for v in vs %}<option>{{v.nome}}</option>{% endfor %}</select></div></div>
-<div class="g" data-t="ocupante beneficiario"><div><label>Data de nascimento</label><input name="nascimento" placeholder="28/08/1964"></div><div><label>Filiação (pai e mãe)</label><input name="filiacao"></div><div><label>Nacionalidade</label><input name="nacionalidade" value="brasileiro(a)"></div><div><label>Regime de bens</label><input name="regime" placeholder="comunhão parcial de bens"></div><div><label>Certidão de casamento (matrícula)</label><input name="cert_casamento"></div><div><label>Cartório do casamento</label><input name="cartorio_casamento"></div><div><label>Data do casamento</label><input name="data_casamento"></div><div><label>Cônjuge</label><input name="conjuge"></div></div>
+<div class="g" data-t="ocupante beneficiario"><div><label>Data de nascimento</label><input name="nascimento" placeholder="28/08/1964"></div><div><label>Filiação (pai e mãe)</label><input name="filiacao"></div><div><label>Nacionalidade</label><input name="nacionalidade" value="brasileiro(a)"></div><div><label>Regime de bens</label><input name="regime" placeholder="comunhão parcial de bens"></div><div><label>Certidão de casamento (matrícula)</label><input name="cert_casamento"></div><div><label>Cartório do casamento</label><input name="cartorio_casamento"></div><div><label>Data do casamento</label><input name="data_casamento"></div><div><label>Nome do cônjuge</label><input name="conjuge"></div>
+<div><label>CPF do cônjuge</label><input name="conjuge_cpf" inputmode="numeric"></div>
+<div><label>RG do cônjuge</label><input name="conjuge_rg"></div>
+<div><label>Profissão do cônjuge</label><input name="conjuge_profissao"></div>
+<div><label>Data de nascimento do cônjuge</label><input name="conjuge_nascimento"></div>
+<div><label>Nacionalidade do cônjuge</label><input name="conjuge_nacionalidade"></div>
+<div><label>Filiação do cônjuge</label><input name="conjuge_filiacao"></div>
+<div><label>Estado civil do cônjuge</label><input name="conjuge_estado_civil"></div></div>
 <label>Observações</label><input name="obs"><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon">
 <label class="chk" id="bSalvaCad" data-t="ocupante beneficiario confrontante" data-n="pessoa"><input type="checkbox" name="salvar_cadastro" value="1" checked> Salvar / atualizar no cadastro de pessoas</label>
 <div class="row-acts"><button>Salvar cadastro</button><button type="button" class="btn secondary" onclick="gps()">📍 Marcar minha posição</button><button type="button" class="btn secondary" id="btnCancela" style="display:none" onclick="limpaForm()">Cancelar edição</button><span id="gpsok"></span></div></form>
 
 <div class="tw"><table><tr><th>Cadastro</th><th>Detalhes</th><th></th></tr>{% for q in ps %}<tr><td><span class="tag">{{q.tipo}}</span> {% if q.tipo=='confrontante' %}<small>{{q.tipo_confrontante or 'pessoa'}}</small> {% endif %}<b>{{q.nome or ('Matrícula ' ~ q.matricula if q.matricula else 'sem identificação')}}</b></td><td><small>{% if q.tipo=='confrontante' %}{{q.v_ini or '?'}} → {{q.v_fim or '?'}} · {% if q.tipo_confrontante=='matricula' %}Matrícula {{q.matricula}} · CNS {{q.cns}}{% elif q.tipo_confrontante=='via' %}Via pública{% else %}CPF/CNPJ {{q.cpf or '—'}}{% endif %}{% else %}CPF {{q.cpf or '—'}} · Cad. imob. {{q.inscricao or '—'}}{% endif %}</small></td><td><div class="row-acts"><button type="button" class="btn small secondary" onclick="editar({{q.id}})">✏️ Editar</button>{% if q.cadastro_id %}<form method="post" action="/p/{{p.id}}/pessoa/{{q.id}}/sincronizar">{{ csrf_token()|safe }}<button class="btn small secondary" title="Copiar do cadastro de pessoas os dados atuais">↻ Do cadastro</button></form>{% endif %}<form method="post" action="/p/{{p.id}}/del/{{q.id}}" onsubmit="return confirm('Remover do projeto?')">{{ csrf_token()|safe }}<button class="btn small danger">🗑</button></form></div></td></tr>{% else %}<tr><td colspan="3">Nenhum cadastro neste projeto ainda.</td></tr>{% endfor %}</table></div></section>
 
-<section><h2>4. Conferir no mapa</h2><p class="hint">Toque em um vértice para defini-lo como <b>V1</b> (ponto inicial).</p><div id="map"></div></section>
+<section id="mapa"><h2>Mapa do imóvel</h2><p class="hint">Toque em um vértice para defini-lo como <b>V1</b> (ponto inicial).</p><div id="map"></div></section>
 <section><h2>Excluir projeto</h2><form method="post" action="/p/{{p.id}}/excluir" onsubmit="return confirm('Excluir este projeto, vértices, pessoas e fotos? Não dá para desfazer.')">{{ csrf_token()|safe }}<button class="btn danger" style="margin-top:0">🗑 Excluir este projeto</button></form></section>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -147,13 +178,37 @@ function iniciarEm(nome){const f=document.createElement('form');f.method='post';
 fetch('/p/'+PID+'/mapa.json').then(r=>r.json()).then(d=>{
  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'});
  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'});
- const m=L.map('map',{layers:[sat]}).setView([-13.7,-39.5],5);L.control.layers({'Satélite':sat,'Ruas':osm}).addTo(m);
- if(d.poly.length>2){const pg=L.polygon(d.poly,{color:'#ffd400',weight:2}).addTo(m);m.fitBounds(pg.getBounds(),{maxZoom:20});
-  d.poly.forEach((q,i)=>{const mk=L.circleMarker(q,{radius:i?5:8,color:i?'red':'#1d9a4c',fillOpacity:.9}).bindTooltip(d.nomes[i]+(i?'':' (início)'),{permanent:true,direction:'top'}).addTo(m);
+ const center=Array.isArray(d.centro)&&d.centro.length===2?d.centro:[-13.7,-39.5];
+ const m=L.map('map',{layers:[sat],zoomControl:true,scrollWheelZoom:true}).setView(center, d.centro?17:5);
+ L.control.layers({'Satélite':sat,'Ruas':osm}).addTo(m);
+ L.control.scale({metric:true,imperial:false}).addTo(m);
+ if(d.poly.length>2){const pg=L.polygon(d.poly,{color:'#ffd400',weight:2}).addTo(m);m.fitBounds(pg.getBounds(),{maxZoom:19,padding:[28,28]});
+  d.poly.forEach((q,i)=>{const mk=L.circleMarker(q,{radius:i?5:8,color:i?'red':'#1d9a4c',fillOpacity:.9}).bindTooltip(d.nomes[i]+(i?'':' (início)'),{permanent:false,direction:'top'}).addTo(m);
    if(i)mk.on('click',()=>{if(confirm('Definir '+d.nomes[i]+' como V1 (ponto inicial)?'))iniciarEm(d.nomes[i])})})}
  d.pessoas.forEach(q=>L.marker([q.lat,q.lon]).bindTooltip(q.tipo+': '+q.nome).addTo(m));});
 </script><script>
-// Organiza as etapas na ordem de trabalho sem bloquear a navegação livre.
-(()=>{const main=document.querySelector('main');if(!main)return;['pessoas','imovel','coords','dados','plantas','crf','drone','fachada','docs'].forEach(id=>{const el=document.getElementById(id);if(el)main.appendChild(el)});})();
+// Fluxo por abas: cada etapa ocupa uma janela própria, sem rolagem longa.
+(()=> {
+ const main=document.querySelector('main'), tabs=document.getElementById('workflowTabs');
+ if(!main||!tabs)return;
+ const order=['pessoas','imovel','coords','mapa','dados','plantas','crf','drone','fachada','docs'];
+ const sections=order.map(id=>document.getElementById(id)).filter(Boolean);
+ const groups={
+  pessoas:['pessoas'], imovel:['imovel'], confrontantes:['pessoas'], coords:['coords','mapa'],
+  dados:['dados'], plantas:['plantas','fachada','drone'], crf:['crf'], docs:['docs']
+ };
+ // Os confrontantes são selecionados pelo filtro do próprio formulário na etapa correspondente.
+ function show(step){
+  sections.forEach(el=>el.hidden=!groups[step]?.includes(el.id));
+  tabs.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.step===step));
+  if(step==='coords'){setTimeout(()=>{const map=document.getElementById('map');if(map&&map._leaflet_id){window.dispatchEvent(new Event('resize'));}},80);}
+  history.replaceState(null,'','#'+(groups[step]?.[0]||'pessoas'));
+ }
+ tabs.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>show(b.dataset.step)));
+ const requested=location.hash.replace('#','');
+ const initial=Object.keys(groups).find(k=>groups[k].includes(requested))||'pessoas';
+ show(initial);
+ window.reurbEtapa=show;
+})();
 </script>
 {% endblock %}
