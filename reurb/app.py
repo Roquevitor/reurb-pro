@@ -395,12 +395,23 @@ def equipe():
             if not titulo or not project or (assignee and not valid_assignee):
                 aviso('Informe uma tarefa, um projeto válido e um responsável da organização.', 'erro')
             else:
-                try: team_id = int(request.form.get('team_id','')) or None
-            except (TypeError,ValueError): team_id = None
-            valid_team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone() if team_id else None
-            if team_id and not valid_team:
-                aviso('A equipe selecionada não pertence à organização.', 'erro')
-                return redirect(url_for('equipe'))
+                try:
+                    team_id = int(request.form.get('team_id','')) or None
+                except (TypeError,ValueError):
+                    team_id = None
+                valid_team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone() if team_id else None
+                if team_id and not valid_team:
+                    aviso('A equipe selecionada não pertence à organização.', 'erro')
+                    return redirect(url_for('equipe'))
+                d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
+                    assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (org_id,project_id,team_id,titulo,request.form.get('description','').strip(),
+                     request.form.get('priority','normal') if request.form.get('priority') in ('low','normal','high','urgent') else 'normal',
+                     assignee, g.current_user['id'] if g.current_user else None,
+                     request.form.get('due_date') or None,agora,agora))
+                d.commit(); aviso('Tarefa criada e vinculada ao projeto.')
+         return redirect(url_for('equipe'))
             d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
                     assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
