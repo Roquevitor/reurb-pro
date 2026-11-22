@@ -7,7 +7,7 @@
   <div class="notice">A variável <b>REURB_SETUP_TOKEN</b> ainda não está configurada ou possui menos de 24 caracteres. Configure-a no ambiente de hospedagem antes de continuar.</div>
   {% endif %}
   <form method="post" class="form-panel">
-    {{ csrf_token()|safe }}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Token de configuração inicial</label><input type="password" name="token" required autocomplete="off">
     <label>Nome completo</label><input name="nome" required maxlength="120">
     <label>E-mail de acesso</label><input type="email" name="email" required maxlength="180" autocomplete="email">
