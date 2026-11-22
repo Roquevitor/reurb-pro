@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Runtime data (never commit user/project data)
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+config/
+reurb.db
+
+# Local/editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+.pytest_cache/
+.coverage

@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: reurb-pro-demo
+    runtime: python
+    plan: starter
+    rootDir: reurb
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 120 app:app
+    healthCheckPath: /login
+    disk:
+      name: reurb-pro-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: REURB_DB
+        value: /var/data/reurb.db
+      - key: REURB_UPLOADS
+        value: /var/data/uploads
+      - key: REURB_CONFIG
+        value: /var/data/config
+      - key: REURB_BRASAO
+        value: /var/data/brasao.png
+      - key: SECRET_KEY
+        generateValue: true
+      - key: REURB_SENHA
+        sync: false

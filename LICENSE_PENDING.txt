@@ -1,0 +1,2 @@
+ATENÇÃO: licença ainda não definida.
+Antes de publicar o repositório como público, confirme a titularidade do código e escolha uma licença. Não substitua este arquivo por uma licença padrão sem autorização dos titulares.
