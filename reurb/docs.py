@@ -33,7 +33,7 @@ def _cobertura(vs, pessoas):
     return seg
 
 def _conf_txt(p):
-    if not p: return 'confrontante não informado'
+    if not p: return ''
     natureza = p.get('tipo_confrontante') or ''
     if natureza == 'via' or (not natureza and re.match(r'(?i)^(rua|avenida|travessa|estrada|pra[çc]a|alameda|rodovia|beco|ladeira|via)\b', (p.get('nome') or '').strip())):
         nome = p.get('nome') or 'via pública não identificada'
@@ -42,7 +42,8 @@ def _conf_txt(p):
         return f"imóvel objeto da matrícula nº {p.get('matricula') or 'não informada'}, CNS nº {p.get('cns') or 'não informado'}"
     if not natureza and p.get('matricula') and not p.get('cpf') and not p.get('nome'):
         return f"imóvel objeto da matrícula nº {p['matricula']}, CNS nº {p.get('cns') or 'não informado'}"
-    s = p.get('nome') or 'pessoa confrontante não identificada'
+    s = p.get('nome') or ''
+    if not s and not p.get('matricula'): return ''
     if p.get('cpf'): s += f", CPF/CNPJ nº {p['cpf']}"
     if p.get('inscricao'): s += f", inscrição cadastral nº {p['inscricao']}"
     if p.get('matricula'): s += f", matrícula/transcrição nº {p['matricula']}"
@@ -66,7 +67,11 @@ def memorial_texto(proj, vs, pessoas):
     for k in range(n):
         q = (k+1) % n
         az = geo.azimute(pts[k], pts[q]); ds = _dist_trecho(vs, k)
-        partes.append(f"deste, segue com azimute de {geo.dms(az)} e distância de {_fmt(ds)} m, confrontando, pelo lado {seg_lado(pts, k)}, com {_conf_txt(seg.get(k))}, até o vértice {vs[q]['nome']}, de coordenadas N {_fmt(vs[q]['n'], 5)} m e E {_fmt(vs[q]['e'], 5)} m")
+        conf = _conf_txt(seg.get(k))
+        trecho = f"deste, segue com azimute de {geo.dms(az)} e distância de {_fmt(ds)} m"
+        if conf: trecho += f", confrontando, pelo lado {seg_lado(pts, k)}, com {conf}"
+        trecho += f", até o vértice {vs[q]['nome']}, de coordenadas N {_fmt(vs[q]['n'], 5)} m e E {_fmt(vs[q]['e'], 5)} m"
+        partes.append(trecho)
     d += '; '.join(partes) + f"; fechando assim o perímetro acima descrito."
     paras.append(d)
     return paras
@@ -153,7 +158,7 @@ def seg_lado(pts, k):
 
 def conf_info(vs, pessoas):
     pts = [(v['e'], v['n']) for v in vs]; sa = _sa(pts); seg = _cobertura(vs, pessoas); out = []
-    for p in [q for q in pessoas if q['tipo'] == 'confrontante']:
+    for p in [q for q in pessoas if q['tipo'] == 'confrontante' and (q.get('nome') or q.get('matricula') or q.get('cpf') or q.get('inscricao'))]:
         ks = sorted(k for k, q in seg.items() if q is p); nx = ny = comp = 0
         for k in ks:
             ex, ey = _normal(pts, k, sa); nx += ex; ny += ey
@@ -215,12 +220,13 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
     k = (1000/esc)*mm; Wm, Hm = dw/k, dh/k; cxm, cym = (mnE+mxE)/2, (mnN+mxN)/2
     e0, n0 = cxm-Wm/2, cym-Hm/2
     P = lambda p: (dx0+(p[0]-e0)*k, dy0+(p[1]-n0)*k)
-    try: img = mapa.fundo(proj['zona'], e0, e0+Wm, n0, n0+Hm, base, 2000, int(2000*dh/dw))
+    try: img = None if base == 'branco' else mapa.fundo(proj['zona'], e0, e0+Wm, n0, n0+Hm, base, 2000, int(2000*dh/dw))
     except Exception: img = None
     if img: c.drawImage(ImageReader(img), dx0, dy0, dw, dh)
     else:
-        c.setFillColorRGB(.93, .93, .93); c.rect(dx0, dy0, dw, dh, fill=1, stroke=0); c.setFillColorRGB(0, 0, 0)
-        c.setFont('Helvetica-Oblique', 9); c.drawString(dx0+3*mm, dy0+dh-6*mm, 'Fundo de mapa indisponível (sem internet no servidor) – gere novamente online.')
+        c.setFillColorRGB(1, 1, 1); c.rect(dx0, dy0, dw, dh, fill=1, stroke=0); c.setFillColorRGB(0, 0, 0)
+        if base != 'branco':
+            c.setFont('Helvetica-Oblique', 9); c.drawString(dx0+3*mm, dy0+dh-6*mm, 'Fundo cartográfico indisponível — planta apresentada em fundo branco.')
     c.rect(dx0, dy0, dw, dh)
 
     def tag(x, y, t, size=7.5, bold=False):
@@ -309,9 +315,12 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
     c.setFont('Helvetica', 9); ocup = ', '.join(p['nome'] for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario'))[:140]
     L = [f"Município: {proj['municipio']}/BA   Núcleo: {proj.get('comunidade') or ''}   Quadra: {proj.get('quadra') or ''}   Lote: {proj.get('lote') or ''}", f"Ocupante(s)/beneficiário(s): {ocup}",
          f"Área: {_fmt(r['area'])} m² ({_fmt(r['ha'], 4)} ha)   Perímetro: {_fmt(r['perimetro'])} m   SIRGAS 2000 – UTM {proj['zona']}S (MC {abs(r['mc'])}°W)   Data: {proj.get('data','')}",
-         f"Responsável técnico: {proj.get('tecnico') or ''}   {proj.get('conselho') or 'CREA/CAU/CFT'}: {proj.get('registro') or ''}"]
-    for i, t in enumerate(L): c.drawString(18*mm, 42*mm-i*6*mm, t)
-    c.setFont('Helvetica', 7); c.drawString(18*mm, 14.5*mm, (mapa.FONTES[base][1] if img else '')+' – fundo apenas ilustrativo (localização/entorno).')
+         f"Responsável técnico: {proj.get('tecnico') or ''}   {proj.get('conselho') or 'CREA/CAU/CFT'}: {proj.get('registro') or ''}",
+         (f"Referência de implantação: do vértice {vs[0]['nome']} até a esquina da {proj.get('rua_esquina')}, distância de {proj.get('distancia_esquina')} m" if proj.get('rua_esquina') and proj.get('distancia_esquina') else '')]
+    for i, t in enumerate(filter(None, L)): c.drawString(18*mm, 42*mm-i*6*mm, t)
+    c.setFont('Helvetica', 7)
+    fonte = (mapa.FONTES[base][1]+' – fundo ilustrativo (localização/entorno).') if img and base in mapa.FONTES else ('Planta técnica vetorial – fundo branco, sem base cartográfica.' if base == 'branco' else 'Fundo cartográfico indisponível; geometria representada em fundo branco.')
+    c.drawString(18*mm, 14.5*mm, fonte)
     c.setFont('Helvetica', 8.5); c.drawString(W-110*mm, 18*mm, 'Assinatura do responsável técnico: ______________________')
     c.showPage()
     c.save(); return b.getvalue()
