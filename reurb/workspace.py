@@ -17,11 +17,12 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
-def _add_org_column(conn: sqlite3.Connection, table: str) -> None:
+def _add_org_column(conn: sqlite3.Connection, table: str, organization_id: int) -> None:
     if "organization_id" not in _columns(conn, table):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN organization_id INTEGER")
     conn.execute(
-        f"UPDATE {table} SET organization_id=1 WHERE organization_id IS NULL"
+        f"UPDATE {table} SET organization_id=? WHERE organization_id IS NULL",
+        (organization_id,),
     )
 
 
@@ -149,14 +150,30 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         (LEGACY_ORG_NAME, "organizacao-principal", "active", now),
     )
 
+    organization_id = conn.execute(
+        "SELECT id FROM organizations WHERE slug='organizacao-principal'"
+    ).fetchone()[0]
+
     # Existing installations are migrated in place. Their records are not copied
     # or deleted; all legacy records belong to the first workspace.
-    for table in (
+    tenant_tables = (
         "projetos", "vertices", "pessoas", "prefeituras", "cartorios",
         "bairros", "logradouros", "cadastro_pessoas", "nucleos",
         "prefeitura_cartorios", "historico_logradouros", "auditoria",
-    ):
-        _add_org_column(conn, table)
+    )
+    for table in tenant_tables:
+        _add_org_column(conn, table, organization_id)
+        # Legacy route handlers do not yet pass organization_id. The trigger
+        # keeps newly inserted rows in the legacy workspace during transition.
+        conn.execute(
+            f"""CREATE TRIGGER IF NOT EXISTS trg_{table}_default_org
+                AFTER INSERT ON {table}
+                WHEN NEW.organization_id IS NULL
+                BEGIN
+                    UPDATE {table} SET organization_id={organization_id}
+                    WHERE rowid=NEW.rowid;
+                END"""
+        )
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_projetos_organization "
