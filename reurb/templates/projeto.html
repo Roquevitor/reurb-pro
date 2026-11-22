@@ -183,8 +183,10 @@ fetch('/p/'+PID+'/mapa.json').then(r=>r.json()).then(d=>{
  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:19,attribution:'Esri',keepBuffer:4,updateWhenZooming:false});
  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxNativeZoom:19,maxZoom:22,attribution:'© OSM',keepBuffer:4,updateWhenZooming:false});
  const center=Array.isArray(d.centro)&&d.centro.length===2?d.centro:[-13.7,-39.5];
- const m=L.map('map',{layers:[osm],zoomControl:true,scrollWheelZoom:true,zoomSnap:0.25,zoomDelta:0.5,minZoom:3,maxZoom:19}).setView(center, d.centro?17:5);
+ // No modo Ruas, permitir aproximação até o nível 22; no satélite, manter o limite nativo 19.
+ const m=L.map('map',{layers:[osm],zoomControl:true,scrollWheelZoom:true,zoomSnap:0.25,zoomDelta:0.5,minZoom:3,maxZoom:22}).setView(center, d.centro?17:5);
  L.control.layers({'Satélite':sat,'Ruas':osm}).addTo(m);
+ m.on('baselayerchange',e=>{const limite=e.name==='Ruas'?22:19;m.setMaxZoom(limite);if(m.getZoom()>limite)m.setZoom(limite)});
  L.control.scale({metric:true,imperial:false}).addTo(m);
  if(d.poly.length>2){const pg=L.polygon(d.poly,{color:'#ffd400',weight:2}).addTo(m);if(!d.centro)m.fitBounds(pg.getBounds(),{maxZoom:19,padding:[28,28]});
   d.poly.forEach((q,i)=>{const mk=L.circleMarker(q,{radius:i?5:8,color:i?'red':'#1d9a4c',fillOpacity:.9}).bindTooltip(d.nomes[i]+(i?'':' (início)'),{permanent:false,direction:'top'}).addTo(m);
