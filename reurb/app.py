@@ -410,10 +410,14 @@ def equipe():
                 aviso('Equipe ou integrante inválido.', 'erro')
         elif action == 'tarefa':
             titulo = request.form.get('title','').strip()
-            try: project_id = int(request.form.get('project_id',''))
-            except (TypeError,ValueError): project_id = 0
-            try: assignee = int(request.form.get('assigned_user_id','')) or None
-            except (TypeError,ValueError): assignee = None
+            try:
+                project_id = int(request.form.get('project_id',''))
+            except (TypeError,ValueError):
+                project_id = 0
+            try:
+                assignee = int(request.form.get('assigned_user_id','')) or None
+            except (TypeError,ValueError):
+                assignee = None
             project = d.execute('SELECT id FROM projetos WHERE id=? AND organization_id=?',(project_id,org_id)).fetchone()
             valid_assignee = d.execute('SELECT user_id FROM memberships WHERE user_id=? AND organization_id=? AND is_active=1',(assignee,org_id)).fetchone() if assignee else None
             if not titulo or not project or (assignee and not valid_assignee):
@@ -428,15 +432,6 @@ def equipe():
                     aviso('A equipe selecionada não pertence à organização.', 'erro')
                     return redirect(url_for('equipe'))
                 d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
-                    assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (org_id,project_id,team_id,titulo,request.form.get('description','').strip(),
-                     request.form.get('priority','normal') if request.form.get('priority') in ('low','normal','high','urgent') else 'normal',
-                     assignee, g.current_user['id'] if g.current_user else None,
-                     request.form.get('due_date') or None,agora,agora))
-                d.commit(); aviso('Tarefa criada e vinculada ao projeto.')
-         return redirect(url_for('equipe'))
-            d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
                     assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                     (org_id,project_id,team_id,titulo,request.form.get('description','').strip(),
