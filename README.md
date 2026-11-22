@@ -87,11 +87,12 @@ A branch `feature/multiempresa-equipes` prepara o REURB Pro para uso por profiss
 
 ### Configuração do primeiro acesso
 
-1. Configure `SECRET_KEY` e `REURB_SETUP_TOKEN` no ambiente. O token precisa ter pelo menos 24 caracteres aleatórios. Em produção, não use a senha padrão local.
-2. Faça o deploy da branch de implementação.
-3. Acesse `/setup` e informe o token, nome, e-mail e uma senha com pelo menos 12 caracteres.
-4. Depois de criar o proprietário, entre pelo formulário de login usando e-mail e senha.
-5. Em **Equipe e tarefas**, cadastre os demais integrantes e organize as atividades.
+1. Gere um token forte no terminal com `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+2. Configure `SECRET_KEY` e `REURB_SETUP_TOKEN` no ambiente. O token precisa ter pelo menos 24 caracteres aleatórios. Em produção, não use a senha padrão local.
+3. Faça o deploy da branch de implementação.
+4. Acesse `/setup` e informe o token, nome, e-mail e uma senha com pelo menos 12 caracteres.
+5. Depois de criar o proprietário, entre pelo formulário de login usando e-mail e senha.
+6. Em **Equipe e tarefas**, cadastre os demais integrantes e organize as atividades.
 
 No Render, adicione `REURB_SETUP_TOKEN` em Environment antes do deploy. Guarde esse token fora do repositório e não o compartilhe. A tela de configuração é desativada automaticamente após a criação do primeiro usuário.
 
@@ -141,3 +142,8 @@ reurb-pro/
 ## Licença
 
 A licença ainda não foi definida. Antes de tornar o repositório público, escolha uma licença compatível com a titularidade do código e dos componentes incluídos. Publicar no GitHub sem licença explícita não concede automaticamente permissão ampla para reutilização do código.
+
+
+### Testes locais
+
+Na pasta `reurb`, execute `python -m unittest discover -v -p "test_*.py"`. O workflow do GitHub também compila os módulos e executa os testes em cada atualização elegível da branch/PR.
