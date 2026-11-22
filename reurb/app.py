@@ -36,7 +36,7 @@ def cfg(nome, padrao=None):
     return p if os.path.exists(p) else (os.path.join(pecas.ASSETS, padrao or nome) if os.path.exists(os.path.join(pecas.ASSETS, padrao or nome)) else None)
 PCAMPOS = ['conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
 CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
-PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data', 'centro_lat', 'centro_lon'] + CRFCAMPOS
+PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data', 'centro_lat', 'centro_lon', 'rua_esquina', 'distancia_esquina', 'tecnico_id'] + CRFCAMPOS
 
 def db():
     if 'db' not in g:
@@ -61,6 +61,7 @@ def db():
           nome TEXT NOT NULL, tipo TEXT, cep TEXT, distrito TEXT, origem TEXT DEFAULT 'manual',
           observacao TEXT, ativo INTEGER DEFAULT 1);
         CREATE TABLE IF NOT EXISTS cadastro_pessoas(id INTEGER PRIMARY KEY AUTOINCREMENT, {', '.join(c+' TEXT' for c in CAD)}, criado_em TEXT, atualizado_em TEXT);
+        CREATE TABLE IF NOT EXISTS profissionais_tecnicos(id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, profissao TEXT, conselho TEXT, registro TEXT, telefone TEXT, email TEXT, ativo INTEGER DEFAULT 1, criado_em TEXT);
         CREATE TABLE IF NOT EXISTS nucleos(id INTEGER PRIMARY KEY AUTOINCREMENT, cartorio_id INTEGER, prefeitura_id INTEGER, nome TEXT NOT NULL, matricula TEXT, data_matricula TEXT, observacao TEXT, ativo INTEGER DEFAULT 1, criado_em TEXT);
         CREATE INDEX IF NOT EXISTS idx_projetos_prefeitura ON projetos(prefeitura_id);
         CREATE INDEX IF NOT EXISTS idx_projetos_cartorio ON projetos(cartorio_id);
@@ -557,6 +558,7 @@ def projeto(pid):
         extra['orient'] = geo.orientacao(vs)
         extra['foto'] = os.path.exists(os.path.join(UP, f'fachada_{pid}.jpg'))
     pid_pref, pid_cart = p.get('prefeitura_id'), p.get('cartorio_id')
+    tecnicos = d.execute('SELECT * FROM profissionais_tecnicos WHERE ativo=1 ORDER BY nome').fetchall()
     pref = d.execute('SELECT nome FROM prefeituras WHERE id=?', (pid_pref,)).fetchone() if pid_pref else None
     cart = d.execute('SELECT nome,cns FROM cartorios WHERE id=?', (pid_cart,)).fetchone() if pid_cart else None
     ruas, bairros = [], []
@@ -564,8 +566,31 @@ def projeto(pid):
         ruas = sorted([dict(nome=geoimport.nome_completo(r['tipo'], r['nome']), bairro=r['bairro'] or '', cep=r['cep'] or '') for r in d.execute('SELECT l.tipo,l.nome,l.cep,b.nome AS bairro FROM logradouros l LEFT JOIN bairros b ON b.id=l.bairro_id WHERE l.prefeitura_id=? AND l.ativo=1', (pid_pref,))], key=lambda r: geoimport.norm(r['nome']))
         bairros = [r['nome'] for r in d.execute('SELECT nome FROM bairros WHERE prefeitura_id=? AND ativo=1 ORDER BY nome', (pid_pref,))]
     nucleos = d.execute('SELECT * FROM nucleos WHERE ativo=1 AND (id=? OR cartorio_id=? OR prefeitura_id=?) ORDER BY nome', (p.get('nucleo_id') or 0, pid_cart or 0, pid_pref or 0)).fetchall()
-    return render_template('projeto.html', p=p, prefeitura=pref, cartorio=cart, vs=vs, ps=ps, x=extra, ruas=ruas, bairros=bairros, nucleos=nucleos, modos=geo.MODOS_INICIO,
+    return render_template('projeto.html', p=p, prefeitura=pref, cartorio=cart, vs=vs, ps=ps, x=extra, ruas=ruas, bairros=bairros, nucleos=nucleos, tecnicos=tecnicos, modos=geo.MODOS_INICIO,
       foto=os.path.exists(os.path.join(UP, f'fachada_{pid}.jpg')), drone=os.path.exists(os.path.join(UP, f'drone_{pid}.jpg')), marcado=os.path.exists(os.path.join(UP, f'drone_marcado_{pid}.jpg')), plantas={k: next((f'/p/{pid}/arquivo-planta/{k}{e}' for e in ('.pdf','.png','.jpg','.jpeg','.webp') if os.path.exists(os.path.join(UP,f'planta_{pid}_{k}{e}'))), None) for k in ('terreo','primeiro','segundo','terceiro')})
+
+@app.route('/tecnicos/salvar', methods=['POST'])
+def tecnico_salvar():
+    f=request.form; d=db()
+    nome=f.get('nome','').strip()
+    if not nome:
+        aviso('Informe o nome do profissional técnico.', 'erro')
+        return redirect(f"/p/{f.get('projeto_id','')}#dados")
+    campos=['nome','profissao','conselho','registro','telefone','email']
+    vals=[f.get(k,'').strip() for k in campos]
+    if f.get('id'):
+        d.execute('UPDATE profissionais_tecnicos SET '+','.join(k+'=?' for k in campos)+' WHERE id=?', vals+[f['id']])
+    else:
+        d.execute('INSERT INTO profissionais_tecnicos('+','.join(campos)+',criado_em) VALUES('+','.join('?' for _ in campos)+',?)', vals+[datetime.datetime.now().isoformat(timespec='seconds')])
+    d.commit()
+    aviso('Profissional técnico salvo para reutilização nos projetos.')
+    return redirect(f"/p/{f.get('projeto_id','')}#dados")
+
+@app.route('/tecnicos/<int:tid>/excluir', methods=['POST'])
+def tecnico_excluir(tid):
+    d=db(); d.execute('UPDATE profissionais_tecnicos SET ativo=0 WHERE id=?',(tid,)); d.commit()
+    aviso('Profissional arquivado; os dados já usados nos projetos foram preservados.')
+    return redirect(request.form.get('volta','/'))
 
 @app.route('/p/<int:pid>/salvar', methods=['POST'])
 def salvar(pid):
