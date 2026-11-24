@@ -57,9 +57,11 @@ def V(x, label):
     return x.strip() if x and x.strip() else ph(label)
 
 def _rich(p, text, size=11):
-    for parte in re.split(r'(\*\*.*?\*\*|\[\[.*?\]\])', text):
+    for parte in re.split(r'(\*\*.*?\*\*|__.*?__|@@.*?@@|\[\[.*?\]\])', text):
         if not parte: continue
         if parte.startswith('**'): r = p.add_run(parte[2:-2]); r.bold = True
+        elif parte.startswith('__'): r = p.add_run(parte[2:-2]); r.underline = True
+        elif parte.startswith('@@'): r = p.add_run(parte[2:-2]); r.bold = True; r.underline = True
         elif parte.startswith('[['): r = p.add_run('['+parte[2:-2]+']'); r.font.highlight_color = WD_COLOR_INDEX.YELLOW
         else: r = p.add_run(parte)
         r.font.size = Pt(size)
@@ -261,22 +263,79 @@ def crf_docx(proj, vs, pessoas, brasao=None, foto=None):
     # 14
     _secao(doc, '14 - Ocupante/beneficiário')
     bs = [p for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario')]
-    def qual(p):
-        s = p['nome'].upper()
-        if p.get('nascimento'): s += f", nascido(a) em {p['nascimento']}"
-        if p.get('filiacao'): s += f", filho(a) de {p['filiacao']}"
-        s += f", {p.get('nacionalidade') or 'brasileiro(a)'}, maior, capaz"
-        if p.get('profissao'): s += f", {p['profissao']}"
-        if p.get('rg'): s += f", RG {p['rg']}"
-        if p.get('cpf'): s += f", CPF {p['cpf']}"
-        if p.get('estado_civil'): s += f", {p['estado_civil']}"+(f" sob o regime {p['regime']}" if p.get('regime') else '')
-        if p.get('cert_casamento'): s += f" (conforme faz prova de certidão de casamento matrícula: {p['cert_casamento']})"
-        if p.get('conjuge'): s += f" com {p['conjuge'].strip().rstrip(',')}"
+    def qual(p, nome=None, nascimento=None, filiacao=None, nacionalidade=None,
+             profissao=None, rg=None, cpf=None, estado_civil=None, regime=None,
+             cert_casamento=None):
+        nome = (nome if nome is not None else p.get('nome') or '').strip()
+        s = f"@@{nome}@@"
+        nascimento = nascimento if nascimento is not None else p.get('nascimento')
+        filiacao = filiacao if filiacao is not None else p.get('filiacao')
+        nacionalidade = nacionalidade if nacionalidade is not None else p.get('nacionalidade')
+        profissao = profissao if profissao is not None else p.get('profissao')
+        rg = rg if rg is not None else p.get('rg')
+        cpf = cpf if cpf is not None else p.get('cpf')
+        estado_civil = estado_civil if estado_civil is not None else p.get('estado_civil')
+        regime = regime if regime is not None else p.get('regime')
+        cert_casamento = cert_casamento if cert_casamento is not None else p.get('cert_casamento')
+        if nascimento: s += f", nascido(a) em {nascimento}"
+        if filiacao: s += f", filho(a) de {filiacao}"
+        s += f", {nacionalidade or 'brasileiro(a)'}, maior, capaz"
+        if profissao: s += f", {profissao}"
+        if rg: s += f", RG {rg}"
+        if cpf: s += f", CPF {cpf}"
+        if estado_civil: s += f", {estado_civil}"
+        if regime: s += f" sob o regime da {regime}" if 'comunh' in regime.lower() else f" sob o regime de {regime}"
+        if cert_casamento: s += f" (conforme faz prova a certidão de casamento, matrícula: {cert_casamento})"
         return s
-    quals = [qual(p) for p in bs] or [ph('nome e qualificação do beneficiário')]
+
+    intro = doc.add_paragraph()
+    _rich(intro, "Certifico, igualmente, o integral atendimento ao art. 41 da Lei nº 13.465/2017, e indico como beneficiário/ocupante:")
+    intro.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    intro.paragraph_format.space_after = Pt(4)
+    intro.paragraph_format.keep_with_next = True
+
+    # Qualifica cada pessoa em parágrafo próprio. Para casal sob comunhão parcial,
+    # a mulher é apresentada primeiro, independentemente de quem foi cadastrado como titular.
+    for pessoa in bs:
+        casal = bool(pessoa.get('conjuge'))
+        regime_txt = (pessoa.get('regime') or '').strip().lower()
+        comunhao_parcial = 'comunh' in regime_txt and 'parcial' in regime_txt
+        titular = dict(pessoa)
+        conjuge = {
+            'nome': pessoa.get('conjuge'),
+            'nascimento': pessoa.get('conjuge_nascimento'),
+            'filiacao': pessoa.get('conjuge_filiacao'),
+            'nacionalidade': pessoa.get('conjuge_nacionalidade'),
+            'profissao': pessoa.get('conjuge_profissao'),
+            'rg': pessoa.get('conjuge_rg'),
+            'cpf': pessoa.get('conjuge_cpf'),
+            'estado_civil': pessoa.get('conjuge_estado_civil') or 'casado(a)',
+            'regime': pessoa.get('regime'),
+            'cert_casamento': pessoa.get('cert_casamento'),
+        }
+        mulher_primeiro = (
+            casal and comunhao_parcial and
+            (pessoa.get('sexo') or '').strip().upper() in ('M', 'MASCULINO')
+        )
+        ordem = [(conjuge, True), (titular, False)] if mulher_primeiro else [(titular, False), (conjuge, True)] if casal else [(titular, False)]
+        for dados, eh_conjuge in ordem:
+            if eh_conjuge and not dados.get('nome'): continue
+            texto = qual(dados)
+            if eh_conjuge:
+                texto += ", cônjuge do(a) beneficiário(a)"
+            par = doc.add_paragraph()
+            _rich(par, texto)
+            par.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            par.paragraph_format.space_after = Pt(3)
+            par.paragraph_format.first_line_indent = Cm(1.25)
+            par.paragraph_format.keep_together = True
+
     end_b = next((p['endereco'] for p in bs if p.get('endereco')), None)
-    _par(doc, f"Certifico, igualmente, o integral atendimento ao art. 41 da Lei nº 13.465/2017, e indico como beneficiário/ocupante: {'; '.join(quals)}, "
-              f"{'são residentes e domiciliados' if len(bs) > 1 or any(p.get('conjuge') for p in bs) else 'residente e domiciliado(a)'} na {end_b or ph('endereço do beneficiário')}, outorgando-lhe direito real de propriedade por aquisição originária.")
+    final_b = doc.add_paragraph()
+    _rich(final_b, f"{'São residentes e domiciliados' if len(bs) > 1 or any(p.get('conjuge') for p in bs) else 'Residente e domiciliado(a)'} na {end_b or ph('endereço do beneficiário')}, outorgando-lhe direito real de propriedade por aquisição originária.")
+    final_b.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    final_b.paragraph_format.space_after = Pt(4)
+    final_b.paragraph_format.keep_together = True
     if g('certidoes_benef'): _par(doc, g('certidoes_benef'))
     # 15
     _secao(doc, '15 - Observações finais')
