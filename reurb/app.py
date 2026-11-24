@@ -488,7 +488,7 @@ def index():
 def campos_prefeitura(d, pref_id):
     pref = d.execute('SELECT * FROM prefeituras WHERE id=?', (pref_id,)).fetchone() if pref_id else None
     if not pref: return {}
-    return {'municipio': pref['municipio'] or pref['nome'], 'prefeitura_cnpj': pref['cnpj'] or '', 'prefeitura_end': pref['endereco'] or '', 'prefeito_nome': normalizar_nome_pessoa(pref['prefeito'] or ''), 'prefeito_qualif': pref['prefeito_qualif'] or '', 'lei_municipal': pref['lei_reurb'] or ''}
+    return {'municipio': pref['municipio'] or pref['nome'], 'prefeitura_cnpj': formatar_documento(pref['cnpj'] or '', 'cpf'), 'prefeitura_end': pref['endereco'] or '', 'prefeito_nome': normalizar_nome_pessoa(pref['prefeito'] or ''), 'prefeito_qualif': pref['prefeito_qualif'] or '', 'lei_municipal': pref['lei_reurb'] or ''}
 
 def campos_tecnico(d, tecnico_id):
     t = d.execute('SELECT * FROM profissionais_tecnicos WHERE id=? AND ativo=1', (tecnico_id,)).fetchone() if tecnico_id else None
