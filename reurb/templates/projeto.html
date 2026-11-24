@@ -33,30 +33,32 @@
 <form method="post" action="/p/{{p.id}}/fachada" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>🖼️ ou escolher/importar uma imagem do aparelho</label><input type="file" name="arq" accept="image/*" onchange="this.form.submit()"></form></section>
 <section id="drone"><h2>Imagem de drone (planta)</h2>
 {% if drone %}<p style="font-size:13px;color:var(--mut);margin:0 0 8px">Escolha a ferramenta e marque o terreno sobre a imagem. Depois toque em <b>Salvar marcação</b>. A imagem marcada entra como folha 2 da planta.</p>
-<div class="acts" id="ferr"><button type="button" class="btn forte" data-m="poli">⬠ Contornar (tocar pontos)</button><button type="button" class="btn" data-m="livre">✏️ Riscar à mão livre</button><button type="button" class="btn" data-m="circ">◯ Circular</button></div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><label style="margin:0">Cor</label><input type="color" id="cor" value="#ffd400" style="width:56px;padding:2px;height:40px"><label style="margin:0">Espessura</label><input type="range" id="esp" min="2" max="30" value="8" style="width:120px;padding:0"></div>
+<div class="acts" id="ferr"><button type="button" class="btn forte" data-m="poli">⬠ Contornar (tocar pontos)</button><button type="button" class="btn" data-m="livre">✏️ Riscar à mão livre</button><button type="button" class="btn" data-m="circ">◯ Circular</button><button type="button" class="btn" data-m="pan">✋ Mover imagem</button></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><label style="margin:0">Zoom da imagem</label><input type="range" id="zoomDrone" min="1" max="4" step=".05" value="1" style="width:150px;padding:0"><button type="button" class="btn small" id="resetDrone">↺ Enquadrar</button><label style="margin:0">Cor</label><input type="color" id="cor" value="#ffd400" style="width:56px;padding:2px;height:40px"><label style="margin:0">Espessura</label><input type="range" id="esp" min="2" max="30" value="8" style="width:120px;padding:0"></div>
 <div style="position:relative;touch-action:none"><canvas id="cv" style="width:100%;border-radius:10px;display:block;background:#eee"></canvas></div>
 <div class="acts" style="margin-top:10px"><button type="button" class="btn" onclick="desfaz()">↶ Desfazer</button><button type="button" class="btn" onclick="fecha()">⬠ Fechar contorno</button><button type="button" class="btn" onclick="limpa()">🧹 Limpar</button><button type="button" class="btn forte" onclick="salva()">💾 Salvar marcação</button></div>
 <form id="fm" method="post" action="/p/{{p.id}}/drone/marcar"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="img" id="fmi"></form>
 {% if marcado %}<p style="font-size:13px;color:var(--verde2);font-weight:700">✔ Marcação salva — já vai na planta.</p>{% endif %}
 <p><a href="/p/{{p.id}}/drone/excluir" onclick="return confirm('Remover a imagem do drone?')">🗑 remover imagem</a></p>
 <script>
-(function(){const cv=document.getElementById('cv'),cx=cv.getContext('2d'),im=new Image();let modo='poli',ops=[],cur=null;
+(function(){const cv=document.getElementById('cv'),cx=cv.getContext('2d'),im=new Image();let modo='poli',ops=[],cur=null,zoom=1,offX=0,offY=0,panStart=null;
 im.onload=()=>{cv.width=im.naturalWidth;cv.height=im.naturalHeight;draw()};im.src='/p/{{p.id}}/drone.jpg?orig=1';
 document.querySelectorAll('#ferr button').forEach(b=>b.onclick=()=>{modo=b.dataset.m;cur=null;document.querySelectorAll('#ferr button').forEach(x=>x.classList.toggle('forte',x===b));draw()});
+document.getElementById('zoomDrone').oninput=e=>{zoom=+e.target.value;draw()};
+document.getElementById('resetDrone').onclick=()=>{zoom=1;offX=offY=0;document.getElementById('zoomDrone').value=1;draw()};
 const sty=()=>({c:document.getElementById('cor').value,w:+document.getElementById('esp').value*cv.width/1000});
-function pt(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]}
+function pt(e){const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*cv.width/r.width,y=(e.clientY-r.top)*cv.height/r.height;return[(x-offX)/zoom,(y-offY)/zoom]}
 function d1(o){cx.strokeStyle=o.c;cx.lineWidth=o.w;cx.lineJoin=cx.lineCap='round';cx.beginPath();
  if(o.t==='circ'){const[a,b]=o.p[0],[c,d]=o.p[1];cx.ellipse((a+c)/2,(b+d)/2,Math.abs(c-a)/2||1,Math.abs(d-b)/2||1,0,0,7)}
  else{o.p.forEach((q,i)=>i?cx.lineTo(...q):cx.moveTo(...q));if(o.fechado){cx.closePath();cx.save();cx.fillStyle=o.c+'40';cx.fill();cx.restore()}}
  cx.stroke();if(o.t==='poli'&&!o.fechado)o.p.forEach(q=>{cx.beginPath();cx.fillStyle=o.c;cx.arc(q[0],q[1],o.w*1.2,0,7);cx.fill()})}
-function draw(){cx.drawImage(im,0,0);ops.forEach(d1);if(cur)d1(cur)}
+function draw(){cx.clearRect(0,0,cv.width,cv.height);cx.save();cx.translate(offX,offY);cx.scale(zoom,zoom);cx.drawImage(im,0,0);ops.forEach(d1);if(cur)d1(cur);cx.restore()}
 let down=false;
-cv.addEventListener('pointerdown',e=>{e.preventDefault();const q=pt(e);
+cv.addEventListener('pointerdown',e=>{e.preventDefault();if(modo==='pan'){panStart={x:e.clientX,y:e.clientY,ox:offX,oy:offY};down=true;cv.setPointerCapture(e.pointerId);return}const q=pt(e);
  if(modo==='poli'){let o=ops[ops.length-1];if(!o||o.t!=='poli'||o.fechado){o=Object.assign({t:'poli',p:[]},sty());ops.push(o)}o.p.push(q);draw();return}
  down=true;cur=Object.assign({t:modo,p:modo==='circ'?[q,q]:[q]},sty())});
-cv.addEventListener('pointermove',e=>{if(!down||!cur)return;const q=pt(e);if(cur.t==='circ')cur.p[1]=q;else cur.p.push(q);draw()});
-const up=()=>{if(down&&cur){ops.push(cur);cur=null;draw()}down=false};cv.addEventListener('pointerup',up);cv.addEventListener('pointerleave',up);
+cv.addEventListener('pointermove',e=>{if(panStart){const r=cv.getBoundingClientRect();offX=panStart.ox+(e.clientX-panStart.x)*cv.width/r.width;offY=panStart.oy+(e.clientY-panStart.y)*cv.height/r.height;draw();return}if(!down||!cur)return;const q=pt(e);if(cur.t==='circ')cur.p[1]=q;else cur.p.push(q);draw()});
+const up=()=>{if(down&&cur){ops.push(cur);cur=null;draw()}down=false;panStart=null};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);cv.addEventListener('pointerleave',up);
 window.desfaz=()=>{const o=ops[ops.length-1];if(o&&o.t==='poli'&&!o.fechado&&o.p.length>1)o.p.pop();else ops.pop();draw()};
 window.fecha=()=>{const o=ops[ops.length-1];if(o&&o.t==='poli'&&o.p.length>2){o.fechado=true;draw()}};
 window.limpa=()=>{if(confirm('Apagar todas as marcações?')){ops=[];draw()}};
