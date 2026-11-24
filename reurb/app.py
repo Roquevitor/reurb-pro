@@ -692,13 +692,13 @@ def vertices_reordenar(pid):
 # ---------- pessoas do projeto + cadastro reutilizável ----------
 
 def normalizar_nome_pessoa(valor):
-    valor = re.sub(r'\\s+', ' ', (valor or '').strip())
+    valor = re.sub(r'\s+', ' ', (valor or '').strip())
     if not valor: return valor
     minusculas = {'de','da','do','das','dos','e'}
     return ' '.join(p.lower() if p.lower() in minusculas else p for p in valor.lower().title().split(' '))
 
 def formatar_documento(valor, tipo):
-    dig = re.sub(r'\\D', '', valor or '')
+    dig = re.sub(r'\D', '', valor or '')
     if tipo == 'cpf' and len(dig) == 11: return f'{dig[:3]}.{dig[3:6]}.{dig[6:9]}-{dig[9:]}'
     if tipo == 'cpf' and len(dig) == 14: return f'{dig[:2]}.{dig[2:5]}.{dig[5:8]}/{dig[8:12]}-{dig[12:]}'
     if tipo == 'cep' and len(dig) == 8: return f'{dig[:5]}-{dig[5:]}'
