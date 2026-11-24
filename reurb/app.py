@@ -168,6 +168,7 @@ def prefeitura_salvar():
     campos=['nome','cnpj','ibge_codigo','uf','municipio','endereco','prefeito','telefone','email','lei_reurb','prefeito_qualif']
     vals=[f.get(k,'').strip() for k in campos]
     vals[1] = formatar_documento(vals[1], 'cpf')
+    vals[6] = normalizar_nome_pessoa(vals[6])
     if not vals[0]: return 'Informe o nome da prefeitura.',400
     if f.get('id'):
         d.execute('UPDATE prefeituras SET '+','.join(k+'=?' for k in campos)+' WHERE id=?',vals+[f['id']])
@@ -524,6 +525,10 @@ def carregar(pid):
     d = db(); p = d.execute('SELECT * FROM projetos WHERE id=?', (pid,)).fetchone()
     vs = [dict(r) for r in d.execute('SELECT * FROM vertices WHERE proj_id=? ORDER BY ordem', (pid,))]
     ps = [dict(r) for r in d.execute('SELECT * FROM pessoas WHERE proj_id=? ORDER BY id', (pid,))]
+    for q in ps:
+        if q.get('nome') and (q.get('tipo') != 'confrontante' or q.get('tipo_confrontante') in ('', 'pessoa', None)):
+            q['nome'] = normalizar_nome_pessoa(q['nome'])
+        q['cpf'] = formatar_documento(q.get('cpf'), 'cpf')
     return dict(p), vs, ps
 
 @app.route('/brasao', methods=['POST'])
@@ -591,6 +596,7 @@ def tecnico_salvar():
         return redirect('/cadastros#tecnicos')
     campos=['nome','profissao','conselho','registro','telefone','email']
     vals=[f.get(k,'').strip() for k in campos]
+    vals[0] = normalizar_nome_pessoa(vals[0])
     if f.get('id'):
         d.execute('UPDATE profissionais_tecnicos SET '+','.join(k+'=?' for k in campos)+' WHERE id=?', vals+[f['id']])
     else:
