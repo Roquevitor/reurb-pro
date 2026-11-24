@@ -293,23 +293,39 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
 
     # ---- painel lateral: confrontantes + quadro de coordenadas (tudo na mesma folha)
     qx = dx0+dw+4*mm; qw = W-10*mm-qx; ytop = dy0+dh
-    rh = min(3.7*mm, 98*mm/(n+2)); tab_h = (n+2)*rh
-    ybot = dy0+tab_h+8*mm
+    # Reserva uma faixa mais generosa para o quadro de coordenadas,
+    # mantendo altura de linha legível mesmo em lotes com vários vértices.
+    rh = min(4.5*mm, 112*mm/(n+2)); tab_h = (n+2)*rh
+    ybot = dy0+tab_h+7*mm
     def wrap(t, wd, f, sz):
         o, l = [], ''
         for pal in t.split():
             if stringWidth((l+' '+pal).strip(), f, sz) > wd: o.append(l); l = pal
             else: l = (l+' '+pal).strip()
         return o+[l]
-    if drone and os.path.exists(drone):  # imagem do drone na mesma folha, acima do quadro de coordenadas
+    if drone and os.path.exists(drone):  # imagem do drone dimensionada sem deformar
         from PIL import Image as _I
-        iw, ih = _I.open(drone).size; maxh = (ytop-ybot)*(.55 if cinfo else .9)-8*mm
-        dw_ = qw; dh_ = dw_*ih/iw
-        if dh_ > maxh: dh_ = maxh; dw_ = dh_*iw/ih
-        dyb = ybot+2*mm; dxb = qx+(qw-dw_)/2
-        c.setFont('Helvetica-Bold', 8.5); c.drawString(qx, dyb+dh_+2*mm, 'IMAGEM AÉREA (DRONE)')
-        c.drawImage(ImageReader(drone), dxb, dyb, dw_, dh_); c.rect(dxb, dyb, dw_, dh_)
-        ybot = dyb+dh_+8*mm
+        with _I.open(drone) as drone_img:
+            iw, ih = drone_img.size
+        # Usa a largura integral do painel e limita a altura para não comprimir
+        # a lista de confrontantes nem invadir o quadro de coordenadas.
+        faixa = max(24*mm, ytop-ybot)
+        maxh = faixa*(.68 if cinfo else .92)-9*mm
+        dw_ = qw-2*mm; dh_ = dw_*ih/iw
+        if dh_ > maxh:
+            dh_ = maxh
+            dw_ = dh_*iw/ih
+        dyb = ybot+3*mm
+        dxb = qx+(qw-dw_)/2
+        c.setFillColorRGB(.97,.97,.97)
+        c.roundRect(qx, dyb-1.5*mm, qw, dh_+9*mm, 1.5*mm, fill=1, stroke=0)
+        c.setFillColorRGB(0,0,0)
+        c.setFont('Helvetica-Bold', 8.5)
+        c.drawString(qx+2*mm, dyb+dh_+3*mm, 'IMAGEM AÉREA (DRONE)')
+        c.drawImage(ImageReader(drone), dxb, dyb, dw_, dh_, preserveAspectRatio=True, anchor='c', mask='auto')
+        c.setStrokeColorRGB(.35,.35,.35); c.setLineWidth(.45)
+        c.rect(dxb, dyb, dw_, dh_)
+        ybot = dyb+dh_+10*mm
     blocos = []
     for i in cinfo:
         p = i['p']; blocos.append((i, wrap(_conf_txt(p).upper(), qw-8*mm, 'Helvetica-Bold', 7.5)))
@@ -336,34 +352,43 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
         y -= 3.1*mm*sc
         y -= 2.6*mm*sc
     yt = dy0+tab_h; c.line(qx, yt+4*mm, qx+qw, yt+4*mm)
-    c.setFont('Helvetica-Bold', 8.5); c.drawString(qx, yt, 'QUADRO DE COORDENADAS – SIRGAS 2000, UTM '+str(proj['zona'])+'S'); y = yt-rh-1*mm
-    cols = [0, 13*mm, 42*mm, 74*mm, 98*mm]; fs = min(7.2, rh/mm*1.85)
+    c.setFont('Helvetica-Bold', 9); c.drawString(qx, yt, 'QUADRO DE COORDENADAS – SIRGAS 2000, UTM '+str(proj['zona'])+'S'); y = yt-rh-1*mm
+    cols = [0, 14*mm, 45*mm, 78*mm, 101*mm]; fs = min(8.0, rh/mm*1.72)
     c.setFont('Helvetica-Bold', fs)
     for x_, t in zip(cols, ['Vért.', 'E (m)', 'N (m)', 'Azimute', 'Dist. (m)']): c.drawString(qx+x_, y, t)
     c.setFont('Helvetica', fs)
     for i, v in enumerate(vs):
         y -= rh; q = pts[(i+1) % n]
         for x_, t in zip(cols, [v['nome'], _fmt(v['e'], 5), _fmt(v['n'], 5), geo.dms(geo.azimute(pts[i], q)), _fmt(_dist_trecho(vs, i))]): c.drawString(qx+x_, y, t)
-    # ---- selo
-    c.rect(14*mm, 12*mm, W-28*mm, 44*mm); c.setFont('Helvetica-Bold', 11)
-    c.drawString(18*mm, 49*mm, f"PLANTA DE LOTE – REURB ({proj.get('modalidade') or 'REURB-S'})")
-    c.setFont('Helvetica', 8.2); ocup = ', '.join(p['nome'] for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario'))[:125]
-    L = [f"Município: {proj['municipio']}/BA   Núcleo: {proj.get('comunidade') or ''}   Quadra: {proj.get('quadra') or ''}   Lote: {proj.get('lote') or ''}", f"Ocupante(s)/beneficiário(s): {ocup}",
-         f"Área: {_fmt(r['area'])} m² ({_fmt(r['ha'], 4)} ha)   Perímetro: {_fmt(r['perimetro'])} m   SIRGAS 2000 – UTM {proj['zona']}S   Data: {proj.get('data','')}",
+    # ---- selo: dados técnicos à esquerda e assinaturas em coluna à direita
+    selo_x, selo_y, selo_w, selo_h = 14*mm, 10*mm, W-28*mm, 48*mm
+    c.setStrokeColorRGB(.18,.18,.18); c.setLineWidth(.65)
+    c.roundRect(selo_x, selo_y, selo_w, selo_h, 1.2*mm, fill=0, stroke=1)
+    c.setFont('Helvetica-Bold', 11)
+    c.drawString(18*mm, 51*mm, f"PLANTA DE LOTE – REURB ({proj.get('modalidade') or 'REURB-S'})")
+    c.setFont('Helvetica', 8.4); ocup = ', '.join(p['nome'] for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario'))[:145]
+    L = [f"Município: {proj['municipio']}/BA   Núcleo: {proj.get('comunidade') or ''}",
+         f"Quadra: {proj.get('quadra') or ''}   Lote: {proj.get('lote') or ''}",
+         f"Ocupante(s)/beneficiário(s): {ocup}",
+         f"Área: {_fmt(r['area'])} m² ({_fmt(r['ha'], 4)} ha)   Perímetro: {_fmt(r['perimetro'])} m",
+         f"SIRGAS 2000 – UTM {proj['zona']}S   Data: {proj.get('data','')}",
          f"Responsável técnico: {proj.get('tecnico') or ''}   {proj.get('conselho') or 'CREA/CAU/CFT'}: {proj.get('registro') or ''}"]
-    for i, line in enumerate(L): c.drawString(18*mm, 43*mm-i*5.2*mm, line)
+    for i, line in enumerate(L):
+        c.drawString(18*mm, 45*mm-i*5.1*mm, line)
     beneficiarios = [p for p in pessoas if p.get('tipo') == 'beneficiario']
     ben = beneficiarios[0] if beneficiarios else next((p for p in pessoas if p.get('tipo') == 'ocupante'), {})
-    nome_ben = (ben.get('nome') or 'Beneficiário(a)')[:42]
-    nome_conj = (ben.get('conjuge') or 'Cônjuge')[:42]
-    c.setFont('Helvetica', 7.5)
-    c.drawString(18*mm, 19*mm, f"Beneficiário(a): {nome_ben}")
-    c.line(18*mm, 16.5*mm, W/2-8*mm, 16.5*mm)
-    c.drawString(W/2+2*mm, 19*mm, f"Cônjuge: {nome_conj}")
-    c.line(W/2+2*mm, 16.5*mm, W-18*mm, 16.5*mm)
+    nome_ben = (ben.get('nome') or 'Beneficiário(a)')[:48]
+    nome_conj = (ben.get('conjuge') or 'Cônjuge')[:48]
+    sx = W*.64; ex = W-18*mm
+    c.setFont('Helvetica', 7.7)
+    c.drawString(sx, 49*mm, f"Beneficiário(a): {nome_ben}")
+    c.line(sx, 46.5*mm, ex, 46.5*mm)
+    c.drawString(sx, 38*mm, f"Cônjuge: {nome_conj}")
+    c.line(sx, 35.5*mm, ex, 35.5*mm)
+    c.drawString(sx, 24*mm, 'Assinatura do responsável técnico')
+    c.line(sx, 21.5*mm, ex, 21.5*mm)
     c.setFont('Helvetica', 7)
     fonte = (mapa.FONTES[base][1]+' – fundo ilustrativo (localização/entorno).') if img and base in mapa.FONTES else ('Planta técnica vetorial – fundo branco, sem base cartográfica.' if base == 'branco' else 'Fundo cartográfico indisponível; geometria representada em fundo branco.')
     c.drawString(18*mm, 13*mm, fonte)
-    c.setFont('Helvetica', 7.5); c.drawRightString(W-18*mm, 13*mm, 'Assinatura do responsável técnico')
     c.showPage()
     c.save(); return b.getvalue()
