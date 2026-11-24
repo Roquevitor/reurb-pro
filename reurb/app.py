@@ -506,10 +506,8 @@ def campos_nucleo(d, nid):
     n = d.execute('SELECT * FROM nucleos WHERE id=?', (nid,)).fetchone()
     if not n: return {}
     cart = d.execute('SELECT nome,cns FROM cartorios WHERE id=?', (n['cartorio_id'],)).fetchone() if n['cartorio_id'] else None
-    out = {'nucleo_id': n['id'], 'comunidade': n['nome'], 'nucleo': n['nome']}
     t = texto_nucleo(n, cart)
-    if t: out['nucleo_origem'] = t
-    return out
+    return {'nucleo_id': n['id'], 'comunidade': n['nome'], 'nucleo': n['nome'], 'nucleo_origem': t}
 
 @app.route('/novo', methods=['POST'])
 def novo():
