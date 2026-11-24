@@ -266,7 +266,13 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
     if proj.get('rua_esquina') and proj.get('distancia_esquina'):
         vx, vy = P(pts[0])
         ref_txt = f"V1 a {_fmt(float(str(proj.get('distancia_esquina')).replace(',', '.')))} metros pelo lado direito de quem olha de frente para o imóvel até a esquina da {proj.get('rua_esquina')}"
-        ref_lines = wrap(ref_txt, 66*mm, 'Helvetica', 7.2)
+        ref_lines = []; current = ''
+        for word in ref_txt.split():
+            candidate = (current+' '+word).strip()
+            if stringWidth(candidate, 'Helvetica', 7.2) > 66*mm and current:
+                ref_lines.append(current); current = word
+            else: current = candidate
+        if current: ref_lines.append(current)
         box_w = 70*mm; line_h = 3.5*mm; box_h = len(ref_lines)*line_h+4*mm
         bx = dx0+4*mm if vx > dx0+dw/2 else dx0+dw-box_w-4*mm
         by = dy0+dh-box_h-5*mm if vy < dy0+dh/2 else dy0+5*mm
