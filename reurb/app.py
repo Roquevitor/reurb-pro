@@ -487,12 +487,12 @@ def index():
 def campos_prefeitura(d, pref_id):
     pref = d.execute('SELECT * FROM prefeituras WHERE id=?', (pref_id,)).fetchone() if pref_id else None
     if not pref: return {}
-    return {'municipio': pref['municipio'] or pref['nome'], 'prefeitura_cnpj': pref['cnpj'] or '', 'prefeitura_end': pref['endereco'] or '', 'prefeito_nome': pref['prefeito'] or '', 'prefeito_qualif': pref['prefeito_qualif'] or '', 'lei_municipal': pref['lei_reurb'] or ''}
+    return {'municipio': pref['municipio'] or pref['nome'], 'prefeitura_cnpj': pref['cnpj'] or '', 'prefeitura_end': pref['endereco'] or '', 'prefeito_nome': normalizar_nome_pessoa(pref['prefeito'] or ''), 'prefeito_qualif': pref['prefeito_qualif'] or '', 'lei_municipal': pref['lei_reurb'] or ''}
 
 def campos_tecnico(d, tecnico_id):
     t = d.execute('SELECT * FROM profissionais_tecnicos WHERE id=? AND ativo=1', (tecnico_id,)).fetchone() if tecnico_id else None
     if not t: return {}
-    return {'tecnico_id': t['id'], 'tecnico': t['nome'] or '', 'profissao_resp': t['profissao'] or '', 'conselho': t['conselho'] or '', 'registro': t['registro'] or ''}
+    return {'tecnico_id': t['id'], 'tecnico': normalizar_nome_pessoa(t['nome'] or ''), 'profissao_resp': t['profissao'] or '', 'conselho': t['conselho'] or '', 'registro': t['registro'] or ''}
 
 def texto_nucleo(n, cart):
     if not n['matricula']: return ''
@@ -588,7 +588,7 @@ def tecnico_salvar():
     nome=f.get('nome','').strip()
     if not nome:
         aviso('Informe o nome do profissional técnico.', 'erro')
-        return redirect(f"/p/{f.get('projeto_id','')}#dados")
+        return redirect('/cadastros#tecnicos')
     campos=['nome','profissao','conselho','registro','telefone','email']
     vals=[f.get(k,'').strip() for k in campos]
     if f.get('id'):
@@ -693,7 +693,7 @@ def vertices_reordenar(pid):
 
 def normalizar_nome_pessoa(valor):
     valor = re.sub(r'\\s+', ' ', (valor or '').strip())
-    if not valor or valor.isupper(): return valor
+    if not valor: return valor
     minusculas = {'de','da','do','das','dos','e'}
     return ' '.join(p.lower() if p.lower() in minusculas else p for p in valor.lower().title().split(' '))
 
@@ -704,9 +704,9 @@ def formatar_documento(valor, tipo):
     if tipo == 'cep' and len(dig) == 8: return f'{dig[:5]}-{dig[5:]}'
     return (valor or '').strip()
 
-def upsert_cadastro(d, dados, cid=None, mesclar=True):
+def upsert_cadastro(d, dados, cid=None, mesclar=True, nome_maiusculo=False):
     vals = {k: (dados.get(k) or '').strip() for k in CAD}
-    vals['nome'] = normalizar_nome_pessoa(vals['nome'])
+    vals['nome'] = vals['nome'].upper() if nome_maiusculo else normalizar_nome_pessoa(vals['nome'])
     vals['cpf'] = formatar_documento(vals['cpf'], 'cpf')
     if not vals['nome']: return None
     agora = datetime.datetime.now().isoformat(timespec='seconds')
@@ -728,7 +728,8 @@ def pessoa(pid):
     volta = f'/p/{pid}#pessoas'
     if tipo not in ('ocupante', 'beneficiario', 'confrontante'): aviso('Escolha o tipo de cadastro.', 'erro'); return redirect(volta)
     dados = {k: f.get(k, '').strip() for k in PCAMPOS}
-    if dados.get('nome') and (tipo != 'confrontante' or dados.get('tipo_confrontante','pessoa') == 'pessoa'): dados['nome'] = normalizar_nome_pessoa(dados['nome'])
+    if dados.get('nome') and (tipo != 'confrontante' or dados.get('tipo_confrontante','pessoa') == 'pessoa'):
+        dados['nome'] = dados['nome'].upper() if f.get('nome_maiusculo') else normalizar_nome_pessoa(dados['nome'])
     dados['cpf'] = formatar_documento(dados.get('cpf'), 'cpf')
     nat = ''
     if tipo == 'confrontante':
@@ -744,7 +745,7 @@ def pessoa(pid):
         dados['tipo_confrontante'] = ''
         if not dados['nome']: aviso('Informe o nome completo.', 'erro'); return redirect(volta)
     if (tipo != 'confrontante' or nat == 'pessoa') and f.get('salvar_cadastro'):
-        cid = upsert_cadastro(d, dados, int(dados['cadastro_id']) if dados.get('cadastro_id', '').isdigit() else None)
+        cid = upsert_cadastro(d, dados, int(dados['cadastro_id']) if dados.get('cadastro_id', '').isdigit() else None, nome_maiusculo=bool(f.get('nome_maiusculo')))
         dados['cadastro_id'] = str(cid) if cid else ''
     vals = [dados.get(k, '') for k in PCAMPOS]
     if f.get('id'):
@@ -924,7 +925,7 @@ def pessoas_lista():
 def pessoas_salvar():
     f = request.form; cid = int(f['id']) if f.get('id', '').isdigit() else None
     if not f.get('nome', '').strip(): aviso('Informe o nome.', 'erro'); return redirect('/pessoas')
-    upsert_cadastro(db(), f, cid, mesclar=False); db().commit(); aviso('Pessoa salva no cadastro.'); return redirect('/pessoas')
+    upsert_cadastro(db(), f, cid, mesclar=False, nome_maiusculo=bool(f.get('nome_maiusculo'))); db().commit(); aviso('Pessoa salva no cadastro.'); return redirect('/pessoas')
 
 @app.route('/pessoas/<int:cid>/excluir', methods=['POST'])
 def pessoas_excluir(cid):
