@@ -61,7 +61,7 @@ def _rich(p, text, size=11):
         if not parte: continue
         if parte.startswith('**'): r = p.add_run(parte[2:-2]); r.bold = True
         elif parte.startswith('__'): r = p.add_run(parte[2:-2]); r.underline = True
-        elif parte.startswith('@@'): r = p.add_run(parte[2:-2]); r.bold = True; r.underline = True
+        elif parte.startswith('@@'): r = p.add_run(parte[2:-2]); r.bold = True
         elif parte.startswith('[['): r = p.add_run('['+parte[2:-2]+']'); r.font.highlight_color = WD_COLOR_INDEX.YELLOW
         else: r = p.add_run(parte)
         r.font.size = Pt(size)
@@ -267,7 +267,7 @@ def crf_docx(proj, vs, pessoas, brasao=None, foto=None):
              profissao=None, rg=None, cpf=None, estado_civil=None, regime=None,
              cert_casamento=None):
         nome = (nome if nome is not None else p.get('nome') or '').strip()
-        s = f"@@{nome}@@"
+        s = f"@@{nome.upper()}@@"
         nascimento = nascimento if nascimento is not None else p.get('nascimento')
         filiacao = filiacao if filiacao is not None else p.get('filiacao')
         nacionalidade = nacionalidade if nacionalidade is not None else p.get('nacionalidade')
