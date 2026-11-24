@@ -167,6 +167,7 @@ def prefeitura_salvar():
     f=request.form; d=db()
     campos=['nome','cnpj','ibge_codigo','uf','municipio','endereco','prefeito','telefone','email','lei_reurb','prefeito_qualif']
     vals=[f.get(k,'').strip() for k in campos]
+    vals[1] = formatar_documento(vals[1], 'cpf')
     if not vals[0]: return 'Informe o nome da prefeitura.',400
     if f.get('id'):
         d.execute('UPDATE prefeituras SET '+','.join(k+'=?' for k in campos)+' WHERE id=?',vals+[f['id']])
@@ -555,6 +556,9 @@ def _cobertura_avisos(vs, ps):
 @app.route('/p/<int:pid>')
 def projeto(pid):
     p, vs, ps = carregar(pid); extra = {}; d = db()
+    if p.get('prefeitura_id'): p.update(campos_prefeitura(d, p['prefeitura_id']))
+    if p.get('nucleo_id'): p.update(campos_nucleo(d, p['nucleo_id']))
+    if p.get('tecnico_id'): p.update(campos_tecnico(d, p['tecnico_id']))
     if len(vs) >= 3:
         extra = docs.resumo(int(p['zona']), vs); extra['avisos'] = geo.validar(int(p['zona']), vs)
         for k, v, lb in [('area_informada', extra['area'], 'Área informada'), ('perimetro_informado', extra['perimetro'], 'Perímetro informado')]:
@@ -629,6 +633,7 @@ def salvar(pid):
         if upd['tecnico_id']: upd.update(campos_tecnico(d, upd['tecnico_id']))
         else: upd.update({'tecnico':'', 'profissao_resp':'', 'conselho':'', 'registro':''})
         upd['tecnico_id'] = upd['tecnico_id'] or None
+    if 'cep' in upd: upd['cep'] = formatar_documento(upd['cep'], 'cep')
     if upd: d.execute(f"UPDATE projetos SET {','.join(k+'=?' for k in upd)} WHERE id=?", list(upd.values())+[pid]); d.commit(); aviso('Dados salvos.')
     return redirect(f'/p/{pid}' + ('#' + request.form['_ancora'] if request.form.get('_ancora') else ''))
 
@@ -875,7 +880,11 @@ def _drone(pid):
     return None
 
 def gerar(pid, what, base='satelite'):
-    p, vs, ps = carregar(pid); p['zona'] = int(p['zona'])
+    p, vs, ps = carregar(pid); d=db()
+    if p.get('prefeitura_id'): p.update(campos_prefeitura(d, p['prefeitura_id']))
+    if p.get('nucleo_id'): p.update(campos_nucleo(d, p['nucleo_id']))
+    if p.get('tecnico_id'): p.update(campos_tecnico(d, p['tecnico_id']))
+    p['zona'] = int(p['zona'])
     if len(vs) < 3: raise ValueError('Importe ao menos 3 vértices.')
     nome = pecas.nome_arquivo(ps, p); fp = os.path.join(UP, f'fachada_{pid}.jpg')
     foto = open(fp, 'rb').read() if os.path.exists(fp) else None; papel, assin = cfg('papel_timbrado.docx'), cfg('assinatura.png')
