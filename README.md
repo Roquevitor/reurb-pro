@@ -68,16 +68,47 @@ O arquivo `render.yaml` descreve o serviço web e um disco persistente. Depois d
 
 O disco persistente mantém banco, anexos e configurações entre deploys. O plano e o custo do Render podem mudar; confira os valores antes de ativar. A configuração usa um único worker para evitar concorrência de inicialização do SQLite.
 
-## Acesso restrito e colaboração — limitação atual
+## Contas individuais, equipes e tarefas — etapa em implementação
 
-Esta versão utiliza **uma senha compartilhada** (`REURB_SENHA`) para todos os colaboradores. Isso restringe o acesso à aplicação, mas ainda não oferece:
+A branch `feature/multiempresa-equipes` prepara o REURB Pro para uso por profissional autônomo e empresas de engenharia.
 
-- contas individuais;
-- papéis e permissões por usuário/instituição;
-- trilha de auditoria individual confiável;
-- segregação de projetos por prefeitura/serventia.
+### Entregas incluídas nesta etapa
 
-Portanto, não trate a senha compartilhada como controle de acesso institucional. Para colaboração com dados reais, a próxima etapa deve implementar usuários individuais, redefinição de senha, autorização por projeto/instituição, auditoria de ações e política de backup/restauração.
+- Organizações e vínculos de usuários com papéis.
+- Configuração inicial, de uso único, para criar a primeira conta proprietária.
+- Login individual por e-mail e senha armazenada com hash.
+- Compatibilidade temporária com a senha antiga apenas enquanto não existir nenhum usuário individual. Depois da criação do primeiro proprietário, essa senha deixa de autenticar.
+- Cadastro de integrantes, equipes e associação de integrantes às equipes.
+- Criação de tarefas vinculadas a projeto, responsável e equipe, com prazo, prioridade e situação.
+- Atualização de situação por responsável ou proprietário.
+- Alteração da própria senha.
+- Eventos básicos de atividade para mudanças de status de tarefas.
+- Migração não destrutiva: os registros existentes são associados à organização principal.
+
+### Configuração do primeiro acesso
+
+1. Gere um token forte no terminal com `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+2. Configure `SECRET_KEY` e `REURB_SETUP_TOKEN` no ambiente. O token precisa ter pelo menos 24 caracteres aleatórios. Em produção, não use a senha padrão local.
+3. Faça o deploy da branch de implementação.
+4. Acesse `/setup` e informe o token, nome, e-mail e uma senha com pelo menos 12 caracteres.
+5. Depois de criar o proprietário, entre pelo formulário de login usando e-mail e senha.
+6. Em **Equipe e tarefas**, cadastre os demais integrantes e organize as atividades.
+
+No Render, adicione `REURB_SETUP_TOKEN` em Environment antes do deploy. Guarde esse token fora do repositório e não o compartilhe. A tela de configuração é desativada automaticamente após a criação do primeiro usuário.
+
+### Limites de segurança — leitura obrigatória
+
+**Esta etapa ainda não libera múltiplas empresas independentes.** As telas de equipe e tarefas trabalham dentro da organização principal. As rotas antigas de projetos, cadastros, documentos, anexos e downloads ainda precisam de escopo e testes de autorização abrangentes. Não crie uma segunda organização nem armazene dados pessoais reais em ambiente compartilhado até que essa etapa esteja concluída.
+
+A senha compartilhada antiga é aceita somente enquanto a tabela de usuários estiver vazia, para permitir a transição sem bloquear a instalação existente. Assim que a primeira conta proprietária for criada, o acesso passa a exigir conta individual.
+
+### Próximas entregas
+
+1. Isolamento obrigatório por organização em todas as consultas, APIs, arquivos, anexos e downloads.
+2. Permissões por projeto e controle de acesso por função.
+3. Convites e recuperação segura de senha.
+4. Auditoria consistente de alterações e gestão de sessões.
+5. Testes automatizados de acesso cruzado, migração e restauração de backup.
 
 ## Dados e privacidade
 
@@ -111,3 +142,8 @@ reurb-pro/
 ## Licença
 
 A licença ainda não foi definida. Antes de tornar o repositório público, escolha uma licença compatível com a titularidade do código e dos componentes incluídos. Publicar no GitHub sem licença explícita não concede automaticamente permissão ampla para reutilização do código.
+
+
+### Testes locais
+
+Na pasta `reurb`, execute `python -m unittest discover -v -p "test_*.py"`. O workflow do GitHub também compila os módulos e executa os testes em cada atualização elegível da branch/PR.

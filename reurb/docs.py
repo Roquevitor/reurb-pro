@@ -33,7 +33,7 @@ def _cobertura(vs, pessoas):
     return seg
 
 def _conf_txt(p):
-    if not p: return 'confrontante não informado'
+    if not p: return ''
     natureza = p.get('tipo_confrontante') or ''
     if natureza == 'via' or (not natureza and re.match(r'(?i)^(rua|avenida|travessa|estrada|pra[çc]a|alameda|rodovia|beco|ladeira|via)\b', (p.get('nome') or '').strip())):
         nome = p.get('nome') or 'via pública não identificada'
@@ -42,7 +42,8 @@ def _conf_txt(p):
         return f"imóvel objeto da matrícula nº {p.get('matricula') or 'não informada'}, CNS nº {p.get('cns') or 'não informado'}"
     if not natureza and p.get('matricula') and not p.get('cpf') and not p.get('nome'):
         return f"imóvel objeto da matrícula nº {p['matricula']}, CNS nº {p.get('cns') or 'não informado'}"
-    s = p.get('nome') or 'pessoa confrontante não identificada'
+    s = p.get('nome') or ''
+    if not s and not p.get('matricula'): return ''
     if p.get('cpf'): s += f", CPF/CNPJ nº {p['cpf']}"
     if p.get('inscricao'): s += f", inscrição cadastral nº {p['inscricao']}"
     if p.get('matricula'): s += f", matrícula/transcrição nº {p['matricula']}"
@@ -66,7 +67,11 @@ def memorial_texto(proj, vs, pessoas):
     for k in range(n):
         q = (k+1) % n
         az = geo.azimute(pts[k], pts[q]); ds = _dist_trecho(vs, k)
-        partes.append(f"deste, segue com azimute de {geo.dms(az)} e distância de {_fmt(ds)} m, confrontando, pelo lado {seg_lado(pts, k)}, com {_conf_txt(seg.get(k))}, até o vértice {vs[q]['nome']}, de coordenadas N {_fmt(vs[q]['n'], 5)} m e E {_fmt(vs[q]['e'], 5)} m")
+        conf = _conf_txt(seg.get(k))
+        trecho = f"deste, segue com azimute de {geo.dms(az)} e distância de {_fmt(ds)} m"
+        if conf: trecho += f", confrontando, pelo lado {seg_lado(pts, k)}, com {conf}"
+        trecho += f", até o vértice {vs[q]['nome']}, de coordenadas N {_fmt(vs[q]['n'], 5)} m e E {_fmt(vs[q]['e'], 5)} m"
+        partes.append(trecho)
     d += '; '.join(partes) + f"; fechando assim o perímetro acima descrito."
     paras.append(d)
     return paras
@@ -153,7 +158,7 @@ def seg_lado(pts, k):
 
 def conf_info(vs, pessoas):
     pts = [(v['e'], v['n']) for v in vs]; sa = _sa(pts); seg = _cobertura(vs, pessoas); out = []
-    for p in [q for q in pessoas if q['tipo'] == 'confrontante']:
+    for p in [q for q in pessoas if q['tipo'] == 'confrontante' and (q.get('nome') or q.get('matricula') or q.get('cpf') or q.get('inscricao'))]:
         ks = sorted(k for k, q in seg.items() if q is p); nx = ny = comp = 0
         for k in ks:
             ex, ey = _normal(pts, k, sa); nx += ex; ny += ey
@@ -210,17 +215,22 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
     dx0, dy0, dw, dh = 14*mm, 62*mm, 270*mm, 214*mm
     mnE, mxE = min(p[0] for p in pts), max(p[0] for p in pts); mnN, mxN = min(p[1] for p in pts), max(p[1] for p in pts)
     w, h = max(mxE-mnE, 1), max(mxN-mnN, 1)
-    esc_min = max(w*1000/(dw*.62/mm), h*1000/(dh*.62/mm))  # aproxima o enquadramento: lote ocupa cerca de 62% do quadro
-    esc = next(s for s in [100, 200, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000, 25000] if s >= esc_min)
+    # Amplia o croqui: o maior lado do lote ocupa aproximadamente 82% do quadro,
+    # preservando margem para rótulos e vértices. Escalas intermediárias evitam
+    # saltos excessivos (por exemplo, de 1:250 diretamente para 1:500).
+    ocupacao = .82
+    esc_min = max(w*1000/(dw*ocupacao/mm), h*1000/(dh*ocupacao/mm))
+    esc = next(s for s in [50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 25000] if s >= esc_min)
     k = (1000/esc)*mm; Wm, Hm = dw/k, dh/k; cxm, cym = (mnE+mxE)/2, (mnN+mxN)/2
     e0, n0 = cxm-Wm/2, cym-Hm/2
     P = lambda p: (dx0+(p[0]-e0)*k, dy0+(p[1]-n0)*k)
-    try: img = mapa.fundo(proj['zona'], e0, e0+Wm, n0, n0+Hm, base, 2000, int(2000*dh/dw))
+    try: img = None if base == 'branco' else mapa.fundo(proj['zona'], e0, e0+Wm, n0, n0+Hm, base, 2000, int(2000*dh/dw))
     except Exception: img = None
     if img: c.drawImage(ImageReader(img), dx0, dy0, dw, dh)
     else:
-        c.setFillColorRGB(.93, .93, .93); c.rect(dx0, dy0, dw, dh, fill=1, stroke=0); c.setFillColorRGB(0, 0, 0)
-        c.setFont('Helvetica-Oblique', 9); c.drawString(dx0+3*mm, dy0+dh-6*mm, 'Fundo de mapa indisponível (sem internet no servidor) – gere novamente online.')
+        c.setFillColorRGB(1, 1, 1); c.rect(dx0, dy0, dw, dh, fill=1, stroke=0); c.setFillColorRGB(0, 0, 0)
+        if base != 'branco':
+            c.setFont('Helvetica-Oblique', 9); c.drawString(dx0+3*mm, dy0+dh-6*mm, 'Fundo cartográfico indisponível — planta apresentada em fundo branco.')
     c.rect(dx0, dy0, dw, dh)
 
     def tag(x, y, t, size=7.5, bold=False):
@@ -252,6 +262,29 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
             c.setFillColorRGB(*paleta_conf[(segnum[i]-1)%len(paleta_conf)]); c.circle(bx, by, 3.2*mm, fill=1); c.setFillColorRGB(1, 1, 1); c.setFont('Helvetica-Bold', 7.5)
             c.drawCentredString(bx, by-2.4, f"C{segnum[i]}"); c.setFillColorRGB(0, 0, 0)
     tag(cx0, cy0+1*mm, f"LOTE {proj.get('lote') or ''}", bold=True, size=10); tag(cx0, cy0-4.5*mm, f"{_fmt(r['area'])} m²", size=9)
+    # Referência de localização ligada ao V1.
+    if proj.get('rua_esquina') and proj.get('distancia_esquina'):
+        vx, vy = P(pts[0])
+        ref_txt = f"V1 a {_fmt(float(str(proj.get('distancia_esquina')).replace(',', '.')))} metros pelo lado direito de quem olha de frente para o imóvel até a esquina da {proj.get('rua_esquina')}"
+        ref_lines = []; current = ''
+        for word in ref_txt.split():
+            candidate = (current+' '+word).strip()
+            if stringWidth(candidate, 'Helvetica', 7.2) > 66*mm and current:
+                ref_lines.append(current); current = word
+            else: current = candidate
+        if current: ref_lines.append(current)
+        box_w = 70*mm; line_h = 3.5*mm; box_h = len(ref_lines)*line_h+4*mm
+        bx = dx0+4*mm if vx > dx0+dw/2 else dx0+dw-box_w-4*mm
+        by = dy0+dh-box_h-5*mm if vy < dy0+dh/2 else dy0+5*mm
+        bx = max(dx0+2*mm, min(bx, dx0+dw-box_w-2*mm))
+        by = max(dy0+2*mm, min(by, dy0+dh-box_h-2*mm))
+        ex = bx+box_w if vx < bx else bx
+        ey = max(by, min(vy, by+box_h))
+        c.setStrokeColorRGB(.15,.15,.15); c.setLineWidth(.55); c.line(vx,vy,ex,ey)
+        c.setFillColorRGB(1,1,1); c.setFillAlpha(.92); c.roundRect(bx,by,box_w,box_h,1.5*mm,fill=1,stroke=1); c.setFillAlpha(1)
+        c.setFillColorRGB(0,0,0); c.setFont('Helvetica',7.2)
+        for li,line in enumerate(ref_lines): c.drawString(bx+2*mm,by+box_h-3.2*mm-li*line_h,line)
+
     nx_, ny_ = dx0+dw-10*mm, dy0+dh-26*mm; c.setFillColorRGB(1, 1, 1); c.rect(nx_-6*mm, ny_-3*mm, 12*mm, 26*mm, fill=1, stroke=0); c.setFillColorRGB(0, 0, 0)
     c.line(nx_, ny_, nx_, ny_+15*mm); c.line(nx_, ny_+15*mm, nx_-2*mm, ny_+11*mm); c.line(nx_, ny_+15*mm, nx_+2*mm, ny_+11*mm); c.setFont('Helvetica-Bold', 10); c.drawCentredString(nx_, ny_+17*mm, 'N')
     bar = next(m for m in [1, 2, 5, 10, 20, 50, 100, 200, 500] if m*k > 20*mm)
@@ -260,23 +293,39 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
 
     # ---- painel lateral: confrontantes + quadro de coordenadas (tudo na mesma folha)
     qx = dx0+dw+4*mm; qw = W-10*mm-qx; ytop = dy0+dh
-    rh = min(3.7*mm, 98*mm/(n+2)); tab_h = (n+2)*rh
-    ybot = dy0+tab_h+8*mm
+    # Reserva uma faixa mais generosa para o quadro de coordenadas,
+    # mantendo altura de linha legível mesmo em lotes com vários vértices.
+    rh = min(4.5*mm, 112*mm/(n+2)); tab_h = (n+2)*rh
+    ybot = dy0+tab_h+7*mm
     def wrap(t, wd, f, sz):
         o, l = [], ''
         for pal in t.split():
             if stringWidth((l+' '+pal).strip(), f, sz) > wd: o.append(l); l = pal
             else: l = (l+' '+pal).strip()
         return o+[l]
-    if drone and os.path.exists(drone):  # imagem do drone na mesma folha, acima do quadro de coordenadas
+    if drone and os.path.exists(drone):  # imagem do drone dimensionada sem deformar
         from PIL import Image as _I
-        iw, ih = _I.open(drone).size; maxh = (ytop-ybot)*(.55 if cinfo else .9)-8*mm
-        dw_ = qw; dh_ = dw_*ih/iw
-        if dh_ > maxh: dh_ = maxh; dw_ = dh_*iw/ih
-        dyb = ybot+2*mm; dxb = qx+(qw-dw_)/2
-        c.setFont('Helvetica-Bold', 8.5); c.drawString(qx, dyb+dh_+2*mm, 'IMAGEM AÉREA (DRONE)')
-        c.drawImage(ImageReader(drone), dxb, dyb, dw_, dh_); c.rect(dxb, dyb, dw_, dh_)
-        ybot = dyb+dh_+8*mm
+        with _I.open(drone) as drone_img:
+            iw, ih = drone_img.size
+        # Usa a largura integral do painel e limita a altura para não comprimir
+        # a lista de confrontantes nem invadir o quadro de coordenadas.
+        faixa = max(24*mm, ytop-ybot)
+        maxh = faixa*(.68 if cinfo else .92)-9*mm
+        dw_ = qw-2*mm; dh_ = dw_*ih/iw
+        if dh_ > maxh:
+            dh_ = maxh
+            dw_ = dh_*iw/ih
+        dyb = ybot+3*mm
+        dxb = qx+(qw-dw_)/2
+        c.setFillColorRGB(.97,.97,.97)
+        c.roundRect(qx, dyb-1.5*mm, qw, dh_+9*mm, 1.5*mm, fill=1, stroke=0)
+        c.setFillColorRGB(0,0,0)
+        c.setFont('Helvetica-Bold', 8.5)
+        c.drawString(qx+2*mm, dyb+dh_+3*mm, 'IMAGEM AÉREA (DRONE)')
+        c.drawImage(ImageReader(drone), dxb, dyb, dw_, dh_, preserveAspectRatio=True, anchor='c', mask='auto')
+        c.setStrokeColorRGB(.35,.35,.35); c.setLineWidth(.45)
+        c.rect(dxb, dyb, dw_, dh_)
+        ybot = dyb+dh_+10*mm
     blocos = []
     for i in cinfo:
         p = i['p']; blocos.append((i, wrap(_conf_txt(p).upper(), qw-8*mm, 'Helvetica-Bold', 7.5)))
@@ -291,27 +340,55 @@ def planta_pdf(proj, vs, pessoas, base='satelite', drone=None):
         for ln in lines:
             c.setFont('Helvetica-Bold', 7.5*sc); c.drawString(qx+7*mm, y, ln); y -= 3.4*mm*sc
         c.setFont('Helvetica', 7*sc)
-        for ln in [f"CPF: {p.get('cpf') or '—'}   Cad. imobiliário: {p.get('inscricao') or '—'}", f"Lado {i['lado']} · {p['v_ini']}→{p['v_fim']} · {_fmt(i['comp'])} m"]:
-            c.drawString(qx+7*mm, y, ln); y -= 3.1*mm*sc
+        natureza = p.get('tipo_confrontante') or ('via' if re.match(r'(?i)^(rua|avenida|travessa|estrada|pra[çc]a|alameda|rodovia|beco|ladeira|via)\\b', (p.get('nome') or '').strip()) else ('matricula' if p.get('matricula') and not p.get('nome') else 'pessoa'))
+        # CPF e inscrição imobiliária só são pertinentes a confrontante pessoa.
+        if natureza == 'pessoa':
+            detalhes = []
+            if p.get('cpf'): detalhes.append(f"CPF/CNPJ: {p['cpf']}")
+            if p.get('inscricao'): detalhes.append(f"Cad. imobiliário: {p['inscricao']}")
+            if detalhes:
+                c.drawString(qx+7*mm, y, '   '.join(detalhes)); y -= 3.1*mm*sc
+        c.drawString(qx+7*mm, y, f"Lado {i['lado']} · {p.get('v_ini') or '?'}→{p.get('v_fim') or '?'} · {_fmt(i['comp'])} m")
+        y -= 3.1*mm*sc
         y -= 2.6*mm*sc
     yt = dy0+tab_h; c.line(qx, yt+4*mm, qx+qw, yt+4*mm)
-    c.setFont('Helvetica-Bold', 8.5); c.drawString(qx, yt, 'QUADRO DE COORDENADAS – SIRGAS 2000, UTM '+str(proj['zona'])+'S'); y = yt-rh-1*mm
-    cols = [0, 13*mm, 42*mm, 74*mm, 98*mm]; fs = min(7.2, rh/mm*1.85)
+    c.setFont('Helvetica-Bold', 9); c.drawString(qx, yt, 'QUADRO DE COORDENADAS – SIRGAS 2000, UTM '+str(proj['zona'])+'S'); y = yt-rh-1*mm
+    cols = [0, 14*mm, 45*mm, 78*mm, 101*mm]; fs = min(8.0, rh/mm*1.72)
     c.setFont('Helvetica-Bold', fs)
     for x_, t in zip(cols, ['Vért.', 'E (m)', 'N (m)', 'Azimute', 'Dist. (m)']): c.drawString(qx+x_, y, t)
     c.setFont('Helvetica', fs)
     for i, v in enumerate(vs):
         y -= rh; q = pts[(i+1) % n]
         for x_, t in zip(cols, [v['nome'], _fmt(v['e'], 5), _fmt(v['n'], 5), geo.dms(geo.azimute(pts[i], q)), _fmt(_dist_trecho(vs, i))]): c.drawString(qx+x_, y, t)
-    # ---- selo
-    c.rect(14*mm, 12*mm, W-28*mm, 44*mm); c.setFont('Helvetica-Bold', 11)
-    c.drawString(18*mm, 49*mm, f"PLANTA DE LOTE – REURB ({proj.get('modalidade') or 'REURB-S'})")
-    c.setFont('Helvetica', 9); ocup = ', '.join(p['nome'] for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario'))[:140]
-    L = [f"Município: {proj['municipio']}/BA   Núcleo: {proj.get('comunidade') or ''}   Quadra: {proj.get('quadra') or ''}   Lote: {proj.get('lote') or ''}", f"Ocupante(s)/beneficiário(s): {ocup}",
-         f"Área: {_fmt(r['area'])} m² ({_fmt(r['ha'], 4)} ha)   Perímetro: {_fmt(r['perimetro'])} m   SIRGAS 2000 – UTM {proj['zona']}S (MC {abs(r['mc'])}°W)   Data: {proj.get('data','')}",
+    # ---- selo: dados técnicos à esquerda e assinaturas em coluna à direita
+    selo_x, selo_y, selo_w, selo_h = 14*mm, 10*mm, W-28*mm, 48*mm
+    c.setStrokeColorRGB(.18,.18,.18); c.setLineWidth(.65)
+    c.roundRect(selo_x, selo_y, selo_w, selo_h, 1.2*mm, fill=0, stroke=1)
+    c.setFont('Helvetica-Bold', 11)
+    c.drawString(18*mm, 51*mm, f"PLANTA DE LOTE – REURB ({proj.get('modalidade') or 'REURB-S'})")
+    c.setFont('Helvetica', 8.4); ocup = ', '.join(p['nome'] for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario'))[:145]
+    L = [f"Município: {proj['municipio']}/BA   Núcleo: {proj.get('comunidade') or ''}",
+         f"Quadra: {proj.get('quadra') or ''}   Lote: {proj.get('lote') or ''}",
+         f"Ocupante(s)/beneficiário(s): {ocup}",
+         f"Área: {_fmt(r['area'])} m² ({_fmt(r['ha'], 4)} ha)   Perímetro: {_fmt(r['perimetro'])} m",
+         f"SIRGAS 2000 – UTM {proj['zona']}S   Data: {proj.get('data','')}",
          f"Responsável técnico: {proj.get('tecnico') or ''}   {proj.get('conselho') or 'CREA/CAU/CFT'}: {proj.get('registro') or ''}"]
-    for i, t in enumerate(L): c.drawString(18*mm, 42*mm-i*6*mm, t)
-    c.setFont('Helvetica', 7); c.drawString(18*mm, 14.5*mm, (mapa.FONTES[base][1] if img else '')+' – fundo apenas ilustrativo (localização/entorno).')
-    c.setFont('Helvetica', 8.5); c.drawString(W-110*mm, 18*mm, 'Assinatura do responsável técnico: ______________________')
+    for i, line in enumerate(L):
+        c.drawString(18*mm, 45*mm-i*5.1*mm, line)
+    beneficiarios = [p for p in pessoas if p.get('tipo') == 'beneficiario']
+    ben = beneficiarios[0] if beneficiarios else next((p for p in pessoas if p.get('tipo') == 'ocupante'), {})
+    nome_ben = (ben.get('nome') or 'Beneficiário(a)')[:48]
+    nome_conj = (ben.get('conjuge') or 'Cônjuge')[:48]
+    sx = W*.64; ex = W-18*mm
+    c.setFont('Helvetica', 7.7)
+    c.drawString(sx, 49*mm, f"Beneficiário(a): {nome_ben}")
+    c.line(sx, 46.5*mm, ex, 46.5*mm)
+    c.drawString(sx, 38*mm, f"Cônjuge: {nome_conj}")
+    c.line(sx, 35.5*mm, ex, 35.5*mm)
+    c.drawString(sx, 24*mm, 'Assinatura do responsável técnico')
+    c.line(sx, 21.5*mm, ex, 21.5*mm)
+    c.setFont('Helvetica', 7)
+    fonte = (mapa.FONTES[base][1]+' – fundo ilustrativo (localização/entorno).') if img and base in mapa.FONTES else ('Planta técnica vetorial – fundo branco, sem base cartográfica.' if base == 'branco' else 'Fundo cartográfico indisponível; geometria representada em fundo branco.')
+    c.drawString(18*mm, 13*mm, fonte)
     c.showPage()
     c.save(); return b.getvalue()

@@ -1,17 +1,18 @@
-import os, sqlite3, json, datetime, re
+import os, sqlite3, json, datetime, re, hmac
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, request, redirect, render_template, send_file, g, url_for, session, abort
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
-import io, zipfile, geo, docs, crf, pecas, geoimport
+from werkzeug.security import generate_password_hash, check_password_hash
+import io, zipfile, geo, docs, crf, pecas, geoimport, workspace
 
 app = Flask(__name__)
 APP_ENV = os.environ.get('APP_ENV', 'development').lower()
 SECRET_KEY = os.environ.get('SECRET_KEY')
 SENHA = os.environ.get('REURB_SENHA')
-if APP_ENV == 'production' and (not SECRET_KEY or not SENHA):
-    raise RuntimeError('Em produção, configure SECRET_KEY e REURB_SENHA nas variáveis de ambiente.')
+if APP_ENV == 'production' and not SECRET_KEY:
+    raise RuntimeError('Em produção, configure SECRET_KEY nas variáveis de ambiente.')
 app.secret_key = SECRET_KEY or 'chave-local-apenas-desenvolvimento'
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -23,7 +24,7 @@ app.config.update(
 )
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 csrf = CSRFProtect(app)
-SENHA = SENHA or 'reurb123'  # somente para execução local; produção exige variável própria
+SENHA = SENHA or ('reurb123' if APP_ENV != 'production' else None)  # compatibilidade local; nunca usar senha padrão em produção
 DB = os.environ.get('REURB_DB', 'reurb.db')
 CRFCAMPOS = ['crf_numero', 'prefeitura_cnpj', 'prefeitura_end', 'prefeito_nome', 'prefeito_qualif', 'lei_municipal', 'insc_cadastral', 'rua', 'numero', 'bairro', 'cep', 'localizacao', 'insc_reduzida', 'tipo_imovel', 'nucleo', 'nucleo_origem', 'profissao_resp', 'rrt', 'construcao', 'valor_lote', 'valor_edif', 'ref_cub', 'edital', 'titulo', 'certidoes_benef', 'rrt_levant', 'rrt_imovel', 'procurador_nome', 'procurador_qualificacao', 'procurador_procuracao', 'ocupacao', 'finalidade', 'padrao', 'tipo_obra', 'area_construida', 'ambientes', 'ref_cub_edif', 'area_informada', 'perimetro_informado']
 MUNCAMPOS = ['municipio', 'prefeitura_cnpj', 'prefeitura_end', 'prefeito_nome', 'prefeito_qualif', 'lei_municipal', 'tecnico', 'conselho', 'registro', 'profissao_resp', 'zona', 'modalidade', 'titulo']
@@ -33,9 +34,9 @@ os.makedirs(UP, exist_ok=True); os.makedirs(CFG, exist_ok=True)
 def cfg(nome, padrao=None):
     p = os.path.join(CFG, nome)
     return p if os.path.exists(p) else (os.path.join(pecas.ASSETS, padrao or nome) if os.path.exists(os.path.join(pecas.ASSETS, padrao or nome)) else None)
-PCAMPOS = ['sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
-CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
-PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data'] + CRFCAMPOS
+PCAMPOS = ['conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'sexo', 'cartorio_casamento', 'data_casamento', 'nome', 'cpf', 'inscricao', 'descricao', 'condicao', 'insc_reduzida', 'notificacao', 'certidoes', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'cert_casamento', 'rg', 'estado_civil', 'profissao', 'endereco', 'telefone', 'matricula', 'cns', 'tipo_confrontante', 'v_ini', 'v_fim', 'obs', 'lat', 'lon', 'cadastro_id']
+CAD = ['nome', 'cpf', 'rg', 'sexo', 'estado_civil', 'profissao', 'telefone', 'endereco', 'inscricao', 'nascimento', 'filiacao', 'nacionalidade', 'regime', 'conjuge', 'conjuge_cpf', 'conjuge_rg', 'conjuge_profissao', 'conjuge_nascimento', 'conjuge_nacionalidade', 'conjuge_filiacao', 'conjuge_estado_civil', 'cert_casamento', 'cartorio_casamento', 'data_casamento', 'matricula', 'cns', 'descricao', 'condicao']
+PROJ = ['prefeitura_id', 'cartorio_id', 'nucleo_id', 'status', 'nome', 'municipio', 'comunidade', 'quadra', 'lote', 'zona', 'modalidade', 'processo', 'requerente', 'matricula_origem', 'tecnico', 'conselho', 'registro', 'data', 'centro_lat', 'centro_lon', 'rua_esquina', 'distancia_esquina', 'tecnico_id'] + CRFCAMPOS
 
 def db():
     if 'db' not in g:
@@ -46,7 +47,7 @@ def db():
         CREATE TABLE IF NOT EXISTS prefeituras(
           id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, cnpj TEXT, ibge_codigo TEXT,
           uf TEXT DEFAULT 'BA', municipio TEXT, endereco TEXT, prefeito TEXT, telefone TEXT,
-          email TEXT, lei_reurb TEXT, brasao_path TEXT, criado_em TEXT);
+          email TEXT, lei_reurb TEXT, prefeito_qualif TEXT, brasao_path TEXT, criado_em TEXT);
         CREATE TABLE IF NOT EXISTS cartorios(
           id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, cns TEXT, atribuicao TEXT,
           municipio TEXT, comarca TEXT, endereco TEXT, oficial TEXT, email TEXT, telefone TEXT,
@@ -60,6 +61,7 @@ def db():
           nome TEXT NOT NULL, tipo TEXT, cep TEXT, distrito TEXT, origem TEXT DEFAULT 'manual',
           observacao TEXT, ativo INTEGER DEFAULT 1);
         CREATE TABLE IF NOT EXISTS cadastro_pessoas(id INTEGER PRIMARY KEY AUTOINCREMENT, {', '.join(c+' TEXT' for c in CAD)}, criado_em TEXT, atualizado_em TEXT);
+        CREATE TABLE IF NOT EXISTS profissionais_tecnicos(id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, profissao TEXT, conselho TEXT, registro TEXT, telefone TEXT, email TEXT, ativo INTEGER DEFAULT 1, criado_em TEXT);
         CREATE TABLE IF NOT EXISTS nucleos(id INTEGER PRIMARY KEY AUTOINCREMENT, cartorio_id INTEGER, prefeitura_id INTEGER, nome TEXT NOT NULL, matricula TEXT, data_matricula TEXT, observacao TEXT, ativo INTEGER DEFAULT 1, criado_em TEXT);
         CREATE INDEX IF NOT EXISTS idx_projetos_prefeitura ON projetos(prefeitura_id);
         CREATE INDEX IF NOT EXISTS idx_projetos_cartorio ON projetos(cartorio_id);
@@ -68,10 +70,12 @@ def db():
         CREATE TABLE IF NOT EXISTS prefeitura_cartorios(prefeitura_id INTEGER NOT NULL, cartorio_id INTEGER NOT NULL, PRIMARY KEY(prefeitura_id,cartorio_id));
         CREATE TABLE IF NOT EXISTS historico_logradouros(id INTEGER PRIMARY KEY AUTOINCREMENT, logradouro_id INTEGER NOT NULL, nome_anterior TEXT NOT NULL, tipo_anterior TEXT, motivo TEXT, fonte TEXT, data_registro TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS auditoria(id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT, acao TEXT NOT NULL, entidade TEXT, entidade_id INTEGER, detalhes TEXT, data_registro TEXT NOT NULL);""")
+        prefcols = {r[1] for r in g.db.execute('PRAGMA table_info(prefeituras)')}
+        if 'prefeito_qualif' not in prefcols: g.db.execute('ALTER TABLE prefeituras ADD COLUMN prefeito_qualif TEXT')
         pc = {r[1] for r in g.db.execute('PRAGMA table_info(projetos)')}
         for c_ in PROJ:
             if c_ not in pc:
-                tipo = 'INTEGER' if c_ in ('prefeitura_id','cartorio_id','nucleo_id') else 'TEXT'
+                tipo = 'INTEGER' if c_ in ('prefeitura_id','cartorio_id','nucleo_id','tecnico_id') else 'TEXT'
                 g.db.execute(f'ALTER TABLE projetos ADD COLUMN {c_} {tipo}')
         vcols = {r[1] for r in g.db.execute('PRAGMA table_info(vertices)')}
         if 'distancia_manual' not in vcols: g.db.execute('ALTER TABLE vertices ADD COLUMN distancia_manual REAL')
@@ -81,6 +85,9 @@ def db():
         cc = {r[1] for r in g.db.execute('PRAGMA table_info(cadastro_pessoas)')}
         for c_ in CAD:
             if c_ not in cc: g.db.execute(f'ALTER TABLE cadastro_pessoas ADD COLUMN {c_} TEXT')
+        # Migra os registros existentes para a organização principal sem apagar dados.
+        # A autorização multiempresa só será ativada após o escopo das rotas.
+        workspace.ensure_schema(g.db)
         g.db.commit()
     return g.db
 
@@ -88,7 +95,11 @@ def aviso(msg, cat='ok'): session['_msg'] = [cat, msg]
 
 @app.context_processor
 def _ctx():
-    return dict(flash_msg=session.pop('_msg', None))
+    return dict(
+        flash_msg=session.pop('_msg', None),
+        current_user=getattr(g, 'current_user', None),
+        current_org_id=getattr(g, 'organization_id', None),
+    )
 
 @app.template_filter('rua')
 def _rua(r): return geoimport.nome_completo(r['tipo'], r['nome'])
@@ -105,10 +116,28 @@ def close(_):
 
 @app.before_request
 def auth():
-    if request.endpoint in ('login', 'static'):
+    if request.endpoint in ('login', 'setup', 'static'):
         return
-    if not session.get('ok'):
-        return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
+    d = db()
+    total_users = d.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if session.get('user_id'):
+        member = d.execute("""SELECT u.id,u.name,u.email,m.role,m.organization_id,o.name AS organization_name
+            FROM users u JOIN memberships m ON m.user_id=u.id
+            JOIN organizations o ON o.id=m.organization_id
+            WHERE u.id=? AND u.is_active=1 AND m.is_active=1 AND o.status='active'
+            ORDER BY m.id LIMIT 1""", (session['user_id'],)).fetchone()
+        if member:
+            g.current_user = member
+            g.organization_id = member['organization_id']
+            return
+        session.clear()
+    # Compatibilidade temporária para a instalação antiga. Assim que o primeiro
+    # proprietário individual for criado, a senha compartilhada deixa de funcionar.
+    if total_users == 0 and session.get('legacy_ok'):
+        g.current_user = None
+        g.organization_id = d.execute("SELECT id FROM organizations WHERE slug='organizacao-principal'").fetchone()[0]
+        return
+    return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
 
 @app.after_request
 def security_headers(response):
@@ -124,7 +153,7 @@ def security_headers(response):
 @app.route('/cadastros')
 def cadastros():
     d=db()
-    return render_template('cadastros.html', mapa_onr=os.environ.get('REURB_MAPA_REGISTRADORES_URL',''),
+    return render_template('cadastros.html', tecnicos=d.execute('SELECT * FROM profissionais_tecnicos WHERE ativo=1 ORDER BY nome').fetchall(), mapa_onr=os.environ.get('REURB_MAPA_REGISTRADORES_URL',''),
       prefeituras=d.execute('SELECT f.*,(SELECT COUNT(*) FROM logradouros l WHERE l.prefeitura_id=f.id AND l.ativo=1) AS n_ruas,(SELECT COUNT(*) FROM bairros b WHERE b.prefeitura_id=f.id AND b.ativo=1) AS n_bairros FROM prefeituras f ORDER BY f.nome').fetchall(),
       cartorios=d.execute('SELECT * FROM cartorios ORDER BY nome').fetchall(),
       nucleos=d.execute('SELECT n.*,c.nome AS cartorio_nome,c.cns,p.nome AS prefeitura_nome FROM nucleos n LEFT JOIN cartorios c ON c.id=n.cartorio_id LEFT JOIN prefeituras p ON p.id=n.prefeitura_id WHERE n.ativo=1 ORDER BY c.nome,n.nome').fetchall(),
@@ -136,8 +165,10 @@ def cadastros():
 @app.route('/prefeitura/salvar', methods=['POST'])
 def prefeitura_salvar():
     f=request.form; d=db()
-    campos=['nome','cnpj','ibge_codigo','uf','municipio','endereco','prefeito','telefone','email','lei_reurb']
+    campos=['nome','cnpj','ibge_codigo','uf','municipio','endereco','prefeito','telefone','email','lei_reurb','prefeito_qualif']
     vals=[f.get(k,'').strip() for k in campos]
+    vals[1] = formatar_documento(vals[1], 'cpf')
+    vals[6] = normalizar_nome_pessoa(vals[6])
     if not vals[0]: return 'Informe o nome da prefeitura.',400
     if f.get('id'):
         d.execute('UPDATE prefeituras SET '+','.join(k+'=?' for k in campos)+' WHERE id=?',vals+[f['id']])
@@ -233,20 +264,217 @@ def cartorios_da_prefeitura(pref_id):
     rows=db().execute("""SELECT c.id,c.nome,c.cns,c.atribuicao FROM cartorios c LEFT JOIN prefeitura_cartorios pc ON pc.cartorio_id=c.id WHERE pc.prefeitura_id=? OR c.municipio=(SELECT municipio FROM prefeituras WHERE id=?) GROUP BY c.id ORDER BY c.nome""",(pref_id,pref_id)).fetchall()
     return json.dumps([dict(x) for x in rows],ensure_ascii=False)
 
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    d = db()
+    if d.execute('SELECT COUNT(*) FROM users').fetchone()[0]:
+        return redirect(url_for('login'))
+    setup_token = os.environ.get('REURB_SETUP_TOKEN', '')
+    if request.method == 'POST':
+        supplied = request.form.get('token', '')
+        nome = request.form.get('nome', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        senha = request.form.get('senha', '')
+        if not setup_token or len(setup_token) < 24 or not hmac.compare_digest(supplied, setup_token):
+            aviso('Token inicial inválido ou não configurado. Configure REURB_SETUP_TOKEN com pelo menos 24 caracteres.', 'erro')
+        elif not nome or '@' not in email or len(senha) < 12:
+            aviso('Informe nome, e-mail válido e senha com pelo menos 12 caracteres.', 'erro')
+        else:
+            agora = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+            try:
+                cur = d.execute('INSERT INTO users(name,email,password_hash,created_at) VALUES(?,?,?,?)',
+                    (nome, email, generate_password_hash(senha), agora))
+                uid = cur.lastrowid
+                org = d.execute("SELECT id FROM organizations WHERE slug='organizacao-principal'").fetchone()
+                d.execute('INSERT INTO memberships(organization_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                    (org['id'], uid, 'owner', agora))
+                d.execute('INSERT INTO activity_events(organization_id,user_id,event_type,details,created_at) VALUES(?,?,?,?,?)',
+                    (org['id'], uid, 'owner_created', 'Primeiro proprietário da organização', agora))
+                d.commit()
+                session.clear(); session.permanent = True; session['user_id'] = uid
+                aviso('Conta proprietária criada. A partir de agora, o acesso é individual.')
+                return redirect(url_for('index'))
+            except sqlite3.IntegrityError:
+                d.rollback()
+                aviso('Este e-mail já está cadastrado.', 'erro')
+    return render_template('setup.html', token_configurado=bool(setup_token and len(setup_token) >= 24))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST' and request.form.get('senha') == SENHA:
-        session.clear(); session.permanent = True; session['ok'] = True
-        destino = request.args.get('next', '/')
-        if not destino.startswith('/') or destino.startswith('//'):
-            destino = '/'
-        return redirect(destino)
-    return render_template('login.html')
+    d = db()
+    total_users = d.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        senha = request.form.get('senha', '')
+        user = d.execute('SELECT * FROM users WHERE email=? AND is_active=1', (email,)).fetchone() if total_users else None
+        if user and check_password_hash(user['password_hash'], senha):
+            member = d.execute('SELECT organization_id FROM memberships WHERE user_id=? AND is_active=1 ORDER BY id LIMIT 1', (user['id'],)).fetchone()
+            if member:
+                session.clear(); session.permanent = True; session['user_id'] = user['id']
+                d.execute('UPDATE users SET last_login_at=? WHERE id=?',
+                    (datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), user['id']))
+                d.commit()
+                destino = request.args.get('next', '/')
+                if not destino.startswith('/') or destino.startswith('//'):
+                    destino = '/'
+                return redirect(destino)
+        elif total_users == 0 and SENHA and hmac.compare_digest(senha, SENHA):
+            session.clear(); session.permanent = True; session['legacy_ok'] = True
+            return redirect(url_for('index'))
+        aviso('E-mail ou senha incorretos.', 'erro')
+    return render_template('login.html', primeiro_acesso=(total_users == 0))
+
+
+@app.route('/minha-conta/senha', methods=['GET', 'POST'])
+def alterar_senha():
+    if not g.current_user:
+        abort(403)
+    d=db()
+    if request.method == 'POST':
+        atual=request.form.get('senha_atual','')
+        nova=request.form.get('senha_nova','')
+        confirmar=request.form.get('confirmar','')
+        user=d.execute('SELECT password_hash FROM users WHERE id=?',(g.current_user['id'],)).fetchone()
+        if not user or not check_password_hash(user['password_hash'],atual):
+            aviso('A senha atual não confere.', 'erro')
+        elif len(nova)<12:
+            aviso('A nova senha deve ter pelo menos 12 caracteres.', 'erro')
+        elif nova!=confirmar:
+            aviso('A confirmação da nova senha não confere.', 'erro')
+        else:
+            d.execute('UPDATE users SET password_hash=? WHERE id=?',(generate_password_hash(nova),g.current_user['id']))
+            d.commit()
+            aviso('Senha alterada com sucesso.')
+            return redirect(url_for('index'))
+    return render_template('senha.html')
+
 
 @app.route('/sair', methods=['POST'])
 def sair():
     session.clear()
     return redirect(url_for('login'))
+
+
+def _is_owner():
+    return bool(getattr(g, 'current_user', None) and g.current_user['role'] == 'owner')
+
+
+def _require_owner():
+    if not _is_owner():
+        abort(403)
+
+
+@app.route('/equipe', methods=['GET', 'POST'])
+def equipe():
+    d = db()
+    org_id = g.organization_id
+    if request.method == 'POST':
+        action = request.form.get('action')
+        agora = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+        if action == 'membro':
+            _require_owner()
+            nome = request.form.get('nome', '').strip()
+            email = request.form.get('email', '').strip().lower()
+            senha = request.form.get('senha', '')
+            papel = request.form.get('role', 'engineer')
+            papeis = {'engineer','field_technician','surveyor','registral_assistant','reviewer'}
+            if not nome or '@' not in email or len(senha) < 12 or papel not in papeis:
+                aviso('Confira nome, e-mail, função e senha (mínimo de 12 caracteres).', 'erro')
+            else:
+                try:
+                    cur = d.execute('INSERT INTO users(name,email,password_hash,created_at) VALUES(?,?,?,?)',
+                        (nome,email,generate_password_hash(senha),agora))
+                    d.execute('INSERT INTO memberships(organization_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                        (org_id,cur.lastrowid,papel,agora))
+                    d.commit()
+                    aviso('Membro cadastrado. Oriente a pessoa a trocar a senha após o primeiro acesso.')
+                except sqlite3.IntegrityError:
+                    d.rollback(); aviso('Este e-mail já possui cadastro.', 'erro')
+        elif action == 'equipe':
+            _require_owner()
+            nome = request.form.get('nome', '').strip()
+            if nome:
+                d.execute('INSERT INTO teams(organization_id,name,description,created_at) VALUES(?,?,?,?)',
+                    (org_id,nome,request.form.get('description','').strip(),agora))
+                d.commit(); aviso('Equipe criada.')
+        elif action == 'integrante_equipe':
+            _require_owner()
+            try:
+                team_id = int(request.form.get('team_id',''))
+                member_id = int(request.form.get('user_id',''))
+            except (TypeError,ValueError):
+                team_id = member_id = 0
+            team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone()
+            member = d.execute('SELECT user_id FROM memberships WHERE user_id=? AND organization_id=? AND is_active=1',(member_id,org_id)).fetchone()
+            if team and member:
+                d.execute('INSERT OR IGNORE INTO team_members(team_id,user_id,role,created_at) VALUES(?,?,?,?)',
+                    (team_id,member_id,request.form.get('team_role','member'),agora))
+                d.commit(); aviso('Integrante vinculado à equipe.')
+            else:
+                aviso('Equipe ou integrante inválido.', 'erro')
+        elif action == 'tarefa':
+            titulo = request.form.get('title','').strip()
+            try:
+                project_id = int(request.form.get('project_id',''))
+            except (TypeError,ValueError):
+                project_id = 0
+            try:
+                assignee = int(request.form.get('assigned_user_id','')) or None
+            except (TypeError,ValueError):
+                assignee = None
+            project = d.execute('SELECT id FROM projetos WHERE id=? AND organization_id=?',(project_id,org_id)).fetchone()
+            valid_assignee = d.execute('SELECT user_id FROM memberships WHERE user_id=? AND organization_id=? AND is_active=1',(assignee,org_id)).fetchone() if assignee else None
+            if not titulo or not project or (assignee and not valid_assignee):
+                aviso('Informe uma tarefa, um projeto válido e um responsável da organização.', 'erro')
+            else:
+                try:
+                    team_id = int(request.form.get('team_id','')) or None
+                except (TypeError,ValueError):
+                    team_id = None
+                valid_team = d.execute('SELECT id FROM teams WHERE id=? AND organization_id=? AND is_active=1',(team_id,org_id)).fetchone() if team_id else None
+                if team_id and not valid_team:
+                    aviso('A equipe selecionada não pertence à organização.', 'erro')
+                    return redirect(url_for('equipe'))
+                d.execute("""INSERT INTO tasks(organization_id,project_id,team_id,title,description,priority,
+                    assigned_user_id,created_by_user_id,due_date,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (org_id,project_id,team_id,titulo,request.form.get('description','').strip(),
+                     request.form.get('priority','normal') if request.form.get('priority') in ('low','normal','high','urgent') else 'normal',
+                     assignee, g.current_user['id'] if g.current_user else None,
+                     request.form.get('due_date') or None,agora,agora))
+                d.commit(); aviso('Tarefa criada e vinculada ao projeto.')
+        return redirect(url_for('equipe'))
+    membros = d.execute("""SELECT u.id,u.name,u.email,m.role,m.is_active
+        FROM users u JOIN memberships m ON m.user_id=u.id
+        WHERE m.organization_id=? ORDER BY u.name""",(org_id,)).fetchall()
+    equipes = d.execute('SELECT * FROM teams WHERE organization_id=? AND is_active=1 ORDER BY name',(org_id,)).fetchall()
+    equipe_membros = d.execute('SELECT tm.team_id,u.name,u.id FROM team_members tm JOIN users u ON u.id=tm.user_id JOIN teams t ON t.id=tm.team_id WHERE t.organization_id=? ORDER BY t.name,u.name',(org_id,)).fetchall()
+    projetos = d.execute('SELECT id,nome,municipio FROM projetos WHERE organization_id=? ORDER BY nome',(org_id,)).fetchall()
+    tarefas = d.execute("""SELECT t.*,p.nome AS projeto_nome,u.name AS responsavel
+        FROM tasks t JOIN projetos p ON p.id=t.project_id
+        LEFT JOIN users u ON u.id=t.assigned_user_id
+        WHERE t.organization_id=? ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'review' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'todo' THEN 3 ELSE 4 END,
+        COALESCE(t.due_date,'9999-12-31'),t.id DESC""",(org_id,)).fetchall()
+    return render_template('equipe.html', membros=membros, equipes=equipes, equipe_membros=equipe_membros, projetos=projetos, tarefas=tarefas, pode_administrar=_is_owner())
+
+
+@app.route('/equipe/tarefa/<int:task_id>/status', methods=['POST'])
+def tarefa_status(task_id):
+    d=db(); org_id=g.organization_id
+    task=d.execute('SELECT * FROM tasks WHERE id=? AND organization_id=?',(task_id,org_id)).fetchone()
+    if not task: abort(404)
+    if not _is_owner() and (not g.current_user or task['assigned_user_id'] != g.current_user['id']):
+        abort(403)
+    status=request.form.get('status')
+    if status not in ('todo','in_progress','review','done','blocked'): abort(400)
+    agora=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+    d.execute('UPDATE tasks SET status=?,completed_at=?,updated_at=? WHERE id=? AND organization_id=?',
+        (status,agora if status=='done' else None,agora,task_id,org_id))
+    d.execute('INSERT INTO activity_events(organization_id,project_id,user_id,event_type,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?,?)',
+        (org_id,task['project_id'],g.current_user['id'] if g.current_user else None,'task_status_changed','task',task_id,status,agora))
+    d.commit(); return redirect(url_for('equipe'))
+
 
 @app.route('/')
 def index():
@@ -256,6 +484,16 @@ def index():
       cartorios=d.execute('SELECT * FROM cartorios ORDER BY nome').fetchall(),
       total_prefeituras=d.execute('SELECT COUNT(*) FROM prefeituras').fetchone()[0], total_cartorios=d.execute('SELECT COUNT(*) FROM cartorios').fetchone()[0],
       total_bairros=d.execute('SELECT COUNT(*) FROM bairros WHERE ativo=1').fetchone()[0], total_logradouros=d.execute('SELECT COUNT(*) FROM logradouros WHERE ativo=1').fetchone()[0])
+
+def campos_prefeitura(d, pref_id):
+    pref = d.execute('SELECT * FROM prefeituras WHERE id=?', (pref_id,)).fetchone() if pref_id else None
+    if not pref: return {}
+    return {'municipio': pref['municipio'] or pref['nome'], 'prefeitura_cnpj': formatar_documento(pref['cnpj'] or '', 'cpf'), 'prefeitura_end': pref['endereco'] or '', 'prefeito_nome': normalizar_nome_pessoa(pref['prefeito'] or ''), 'prefeito_qualif': pref['prefeito_qualif'] or '', 'lei_municipal': pref['lei_reurb'] or ''}
+
+def campos_tecnico(d, tecnico_id):
+    t = d.execute('SELECT * FROM profissionais_tecnicos WHERE id=? AND ativo=1', (tecnico_id,)).fetchone() if tecnico_id else None
+    if not t: return {}
+    return {'tecnico_id': t['id'], 'tecnico': normalizar_nome_pessoa(t['nome'] or ''), 'profissao_resp': t['profissao'] or '', 'conselho': t['conselho'] or '', 'registro': t['registro'] or ''}
 
 def texto_nucleo(n, cart):
     if not n['matricula']: return ''
@@ -268,22 +506,16 @@ def campos_nucleo(d, nid):
     n = d.execute('SELECT * FROM nucleos WHERE id=?', (nid,)).fetchone()
     if not n: return {}
     cart = d.execute('SELECT nome,cns FROM cartorios WHERE id=?', (n['cartorio_id'],)).fetchone() if n['cartorio_id'] else None
-    out = {'nucleo_id': n['id'], 'comunidade': n['nome'], 'nucleo': n['nome']}
     t = texto_nucleo(n, cart)
-    if t: out['nucleo_origem'] = t
-    return out
+    return {'nucleo_id': n['id'], 'comunidade': n['nome'], 'nucleo': n['nome'], 'nucleo_origem': t}
 
 @app.route('/novo', methods=['POST'])
 def novo():
     f = request.form; d = dict(zona='24', modalidade='REURB-S', status='Em planejamento', data=datetime.date.today().strftime('%d/%m/%Y'))
     d.update({k: f.get(k, '') for k in PROJ if f.get(k) is not None and f.get(k) != ''})
-    if d.get('prefeitura_id'):
-        pref=db().execute('SELECT * FROM prefeituras WHERE id=?',(d['prefeitura_id'],)).fetchone()
-        if pref:
-            d['municipio']=pref['municipio'] or pref['nome']
-            for k,v in [('prefeitura_cnpj',pref['cnpj']),('prefeitura_end',pref['endereco']),('prefeito_nome',pref['prefeito']),('lei_municipal',pref['lei_reurb'])]:
-                if v and not d.get(k): d[k]=v
+    if d.get('prefeitura_id'): d.update(campos_prefeitura(db(), d['prefeitura_id']))
     if d.get('nucleo_id'): d.update(campos_nucleo(db(), d['nucleo_id']))
+    if d.get('tecnico_id'): d.update(campos_tecnico(db(), d['tecnico_id']))
     c = db().execute(f"INSERT INTO projetos({','.join(d)}) VALUES({','.join('?'*len(d))})", list(d.values()))
     db().commit(); return redirect(f'/p/{c.lastrowid}')
 
@@ -291,6 +523,10 @@ def carregar(pid):
     d = db(); p = d.execute('SELECT * FROM projetos WHERE id=?', (pid,)).fetchone()
     vs = [dict(r) for r in d.execute('SELECT * FROM vertices WHERE proj_id=? ORDER BY ordem', (pid,))]
     ps = [dict(r) for r in d.execute('SELECT * FROM pessoas WHERE proj_id=? ORDER BY id', (pid,))]
+    for q in ps:
+        if q.get('nome') and (q.get('tipo') != 'confrontante' or q.get('tipo_confrontante') in ('', 'pessoa', None)):
+            q['nome'] = normalizar_nome_pessoa(q['nome'])
+        q['cpf'] = formatar_documento(q.get('cpf'), 'cpf')
     return dict(p), vs, ps
 
 @app.route('/brasao', methods=['POST'])
@@ -323,6 +559,9 @@ def _cobertura_avisos(vs, ps):
 @app.route('/p/<int:pid>')
 def projeto(pid):
     p, vs, ps = carregar(pid); extra = {}; d = db()
+    if p.get('prefeitura_id'): p.update(campos_prefeitura(d, p['prefeitura_id']))
+    if p.get('nucleo_id'): p.update(campos_nucleo(d, p['nucleo_id']))
+    if p.get('tecnico_id'): p.update(campos_tecnico(d, p['tecnico_id']))
     if len(vs) >= 3:
         extra = docs.resumo(int(p['zona']), vs); extra['avisos'] = geo.validar(int(p['zona']), vs)
         for k, v, lb in [('area_informada', extra['area'], 'Área informada'), ('perimetro_informado', extra['perimetro'], 'Perímetro informado')]:
@@ -334,6 +573,8 @@ def projeto(pid):
         extra['orient'] = geo.orientacao(vs)
         extra['foto'] = os.path.exists(os.path.join(UP, f'fachada_{pid}.jpg'))
     pid_pref, pid_cart = p.get('prefeitura_id'), p.get('cartorio_id')
+    tecnicos = d.execute('SELECT * FROM profissionais_tecnicos WHERE ativo=1 ORDER BY nome').fetchall()
+    prefeituras = d.execute('SELECT * FROM prefeituras ORDER BY nome').fetchall()
     pref = d.execute('SELECT nome FROM prefeituras WHERE id=?', (pid_pref,)).fetchone() if pid_pref else None
     cart = d.execute('SELECT nome,cns FROM cartorios WHERE id=?', (pid_cart,)).fetchone() if pid_cart else None
     ruas, bairros = [], []
@@ -341,16 +582,62 @@ def projeto(pid):
         ruas = sorted([dict(nome=geoimport.nome_completo(r['tipo'], r['nome']), bairro=r['bairro'] or '', cep=r['cep'] or '') for r in d.execute('SELECT l.tipo,l.nome,l.cep,b.nome AS bairro FROM logradouros l LEFT JOIN bairros b ON b.id=l.bairro_id WHERE l.prefeitura_id=? AND l.ativo=1', (pid_pref,))], key=lambda r: geoimport.norm(r['nome']))
         bairros = [r['nome'] for r in d.execute('SELECT nome FROM bairros WHERE prefeitura_id=? AND ativo=1 ORDER BY nome', (pid_pref,))]
     nucleos = d.execute('SELECT * FROM nucleos WHERE ativo=1 AND (id=? OR cartorio_id=? OR prefeitura_id=?) ORDER BY nome', (p.get('nucleo_id') or 0, pid_cart or 0, pid_pref or 0)).fetchall()
-    return render_template('projeto.html', p=p, prefeitura=pref, cartorio=cart, vs=vs, ps=ps, x=extra, ruas=ruas, bairros=bairros, nucleos=nucleos, modos=geo.MODOS_INICIO,
+    return render_template('projeto.html', p=p, prefeitura=pref, cartorio=cart, vs=vs, ps=ps, x=extra, ruas=ruas, bairros=bairros, nucleos=nucleos, tecnicos=tecnicos, prefeituras=prefeituras, modos=geo.MODOS_INICIO,
       foto=os.path.exists(os.path.join(UP, f'fachada_{pid}.jpg')), drone=os.path.exists(os.path.join(UP, f'drone_{pid}.jpg')), marcado=os.path.exists(os.path.join(UP, f'drone_marcado_{pid}.jpg')), plantas={k: next((f'/p/{pid}/arquivo-planta/{k}{e}' for e in ('.pdf','.png','.jpg','.jpeg','.webp') if os.path.exists(os.path.join(UP,f'planta_{pid}_{k}{e}'))), None) for k in ('terreo','primeiro','segundo','terceiro')})
+
+@app.route('/tecnicos/salvar', methods=['POST'])
+def tecnico_salvar():
+    f=request.form; d=db()
+    nome=f.get('nome','').strip()
+    if not nome:
+        aviso('Informe o nome do profissional técnico.', 'erro')
+        return redirect('/cadastros#tecnicos')
+    campos=['nome','profissao','conselho','registro','telefone','email']
+    vals=[f.get(k,'').strip() for k in campos]
+    vals[0] = normalizar_nome_pessoa(vals[0])
+    if f.get('id'):
+        d.execute('UPDATE profissionais_tecnicos SET '+','.join(k+'=?' for k in campos)+' WHERE id=?', vals+[f['id']])
+    else:
+        d.execute('INSERT INTO profissionais_tecnicos('+','.join(campos)+',criado_em) VALUES('+','.join('?' for _ in campos)+',?)', vals+[datetime.datetime.now().isoformat(timespec='seconds')])
+    d.commit()
+    aviso('Profissional técnico salvo para reutilização nos projetos.')
+    return redirect('/cadastros#tecnicos')
+
+@app.route('/tecnicos/<int:tid>/excluir', methods=['POST'])
+def tecnico_excluir(tid):
+    d=db(); d.execute('UPDATE profissionais_tecnicos SET ativo=0 WHERE id=?',(tid,)); d.commit()
+    aviso('Profissional arquivado; os dados já usados nos projetos foram preservados.')
+    return redirect(request.form.get('volta','/cadastros#tecnicos'))
 
 @app.route('/p/<int:pid>/salvar', methods=['POST'])
 def salvar(pid):
     d = db(); upd = {k: request.form[k] for k in PROJ if k in request.form}
+    for campo, minimo, maximo in (('centro_lat', -90, 90), ('centro_lon', -180, 180)):
+        if campo in upd:
+            bruto = (upd[campo] or '').strip().replace(',', '.')
+            if bruto:
+                try: numero = float(bruto)
+                except ValueError:
+                    aviso('Latitude e longitude devem ser números em graus decimais.', 'erro')
+                    return redirect(f'/p/{pid}#coords')
+                if not minimo <= numero <= maximo:
+                    aviso(f'Valor inválido para {campo.replace("centro_", "").upper()}.', 'erro')
+                    return redirect(f'/p/{pid}#coords')
+                upd[campo] = str(numero)
+            else:
+                upd[campo] = ''
+    if 'prefeitura_id' in upd:
+        if upd['prefeitura_id']: upd.update(campos_prefeitura(d, upd['prefeitura_id']))
+        upd['prefeitura_id'] = upd['prefeitura_id'] or None
     if 'nucleo_id' in upd:
-        atual = d.execute('SELECT nucleo_id FROM projetos WHERE id=?', (pid,)).fetchone()
-        if upd['nucleo_id'] and str(atual['nucleo_id'] or '') != upd['nucleo_id']: upd.update(campos_nucleo(d, upd['nucleo_id']))
+        if upd['nucleo_id']: upd.update(campos_nucleo(d, upd['nucleo_id']))
+        else: upd.update({'comunidade':'', 'nucleo':'', 'nucleo_origem':''})
         upd['nucleo_id'] = upd['nucleo_id'] or None
+    if 'tecnico_id' in upd:
+        if upd['tecnico_id']: upd.update(campos_tecnico(d, upd['tecnico_id']))
+        else: upd.update({'tecnico':'', 'profissao_resp':'', 'conselho':'', 'registro':''})
+        upd['tecnico_id'] = upd['tecnico_id'] or None
+    if 'cep' in upd: upd['cep'] = formatar_documento(upd['cep'], 'cep')
     if upd: d.execute(f"UPDATE projetos SET {','.join(k+'=?' for k in upd)} WHERE id=?", list(upd.values())+[pid]); d.commit(); aviso('Dados salvos.')
     return redirect(f'/p/{pid}' + ('#' + request.form['_ancora'] if request.form.get('_ancora') else ''))
 
@@ -407,8 +694,24 @@ def vertices_reordenar(pid):
     return redirect(f'/p/{pid}#coords')
 
 # ---------- pessoas do projeto + cadastro reutilizável ----------
-def upsert_cadastro(d, dados, cid=None, mesclar=True):
+
+def normalizar_nome_pessoa(valor):
+    valor = re.sub(r'\s+', ' ', (valor or '').strip())
+    if not valor: return valor
+    minusculas = {'de','da','do','das','dos','e'}
+    return ' '.join(p.lower() if p.lower() in minusculas else p for p in valor.lower().title().split(' '))
+
+def formatar_documento(valor, tipo):
+    dig = re.sub(r'\D', '', valor or '')
+    if tipo == 'cpf' and len(dig) == 11: return f'{dig[:3]}.{dig[3:6]}.{dig[6:9]}-{dig[9:]}'
+    if tipo == 'cpf' and len(dig) == 14: return f'{dig[:2]}.{dig[2:5]}.{dig[5:8]}/{dig[8:12]}-{dig[12:]}'
+    if tipo == 'cep' and len(dig) == 8: return f'{dig[:5]}-{dig[5:]}'
+    return (valor or '').strip()
+
+def upsert_cadastro(d, dados, cid=None, mesclar=True, nome_maiusculo=False):
     vals = {k: (dados.get(k) or '').strip() for k in CAD}
+    vals['nome'] = vals['nome'].upper() if nome_maiusculo else normalizar_nome_pessoa(vals['nome'])
+    vals['cpf'] = formatar_documento(vals['cpf'], 'cpf')
     if not vals['nome']: return None
     agora = datetime.datetime.now().isoformat(timespec='seconds')
     if not cid and vals['cpf']:
@@ -429,6 +732,9 @@ def pessoa(pid):
     volta = f'/p/{pid}#pessoas'
     if tipo not in ('ocupante', 'beneficiario', 'confrontante'): aviso('Escolha o tipo de cadastro.', 'erro'); return redirect(volta)
     dados = {k: f.get(k, '').strip() for k in PCAMPOS}
+    if dados.get('nome') and (tipo != 'confrontante' or dados.get('tipo_confrontante','pessoa') == 'pessoa'):
+        dados['nome'] = dados['nome'].upper() if f.get('nome_maiusculo') else normalizar_nome_pessoa(dados['nome'])
+    dados['cpf'] = formatar_documento(dados.get('cpf'), 'cpf')
     nat = ''
     if tipo == 'confrontante':
         nat = dados['tipo_confrontante'] = dados.get('tipo_confrontante') or 'pessoa'
@@ -443,7 +749,7 @@ def pessoa(pid):
         dados['tipo_confrontante'] = ''
         if not dados['nome']: aviso('Informe o nome completo.', 'erro'); return redirect(volta)
     if (tipo != 'confrontante' or nat == 'pessoa') and f.get('salvar_cadastro'):
-        cid = upsert_cadastro(d, dados, int(dados['cadastro_id']) if dados.get('cadastro_id', '').isdigit() else None)
+        cid = upsert_cadastro(d, dados, int(dados['cadastro_id']) if dados.get('cadastro_id', '').isdigit() else None, nome_maiusculo=bool(f.get('nome_maiusculo')))
         dados['cadastro_id'] = str(cid) if cid else ''
     vals = [dados.get(k, '') for k in PCAMPOS]
     if f.get('id'):
@@ -479,7 +785,14 @@ def projeto_excluir(pid):
 def mapa(pid):
     p, vs, ps = carregar(pid); z = int(p['zona'])
     ll = [geo.to_latlon(z, v['e'], v['n']) for v in vs]
-    return json.dumps(dict(poly=ll, nomes=[v['nome'] for v in vs],
+    centro = None
+    try:
+        if p.get('centro_lat') not in (None, '') and p.get('centro_lon') not in (None, ''):
+            centro = [float(str(p['centro_lat']).replace(',', '.')), float(str(p['centro_lon']).replace(',', '.'))]
+            if not (-90 <= centro[0] <= 90 and -180 <= centro[1] <= 180): centro = None
+    except (TypeError, ValueError):
+        centro = None
+    return json.dumps(dict(poly=ll, nomes=[v['nome'] for v in vs], centro=centro,
         pessoas=[dict(nome=q['nome'], tipo=q['tipo'], lat=q['lat'], lon=q['lon']) for q in ps if q['lat'] and q['lon']]))
 
 @app.route('/p/<int:pid>/drone', methods=['POST'])
@@ -572,7 +885,11 @@ def _drone(pid):
     return None
 
 def gerar(pid, what, base='satelite'):
-    p, vs, ps = carregar(pid); p['zona'] = int(p['zona'])
+    p, vs, ps = carregar(pid); d=db()
+    if p.get('prefeitura_id'): p.update(campos_prefeitura(d, p['prefeitura_id']))
+    if p.get('nucleo_id'): p.update(campos_nucleo(d, p['nucleo_id']))
+    if p.get('tecnico_id'): p.update(campos_tecnico(d, p['tecnico_id']))
+    p['zona'] = int(p['zona'])
     if len(vs) < 3: raise ValueError('Importe ao menos 3 vértices.')
     nome = pecas.nome_arquivo(ps, p); fp = os.path.join(UP, f'fachada_{pid}.jpg')
     foto = open(fp, 'rb').read() if os.path.exists(fp) else None; papel, assin = cfg('papel_timbrado.docx'), cfg('assinatura.png')
@@ -612,7 +929,7 @@ def pessoas_lista():
 def pessoas_salvar():
     f = request.form; cid = int(f['id']) if f.get('id', '').isdigit() else None
     if not f.get('nome', '').strip(): aviso('Informe o nome.', 'erro'); return redirect('/pessoas')
-    upsert_cadastro(db(), f, cid, mesclar=False); db().commit(); aviso('Pessoa salva no cadastro.'); return redirect('/pessoas')
+    upsert_cadastro(db(), f, cid, mesclar=False, nome_maiusculo=bool(f.get('nome_maiusculo'))); db().commit(); aviso('Pessoa salva no cadastro.'); return redirect('/pessoas')
 
 @app.route('/pessoas/<int:cid>/excluir', methods=['POST'])
 def pessoas_excluir(cid):

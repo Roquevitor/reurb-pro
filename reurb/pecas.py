@@ -71,7 +71,36 @@ def _q(p):
 def qualificacao(pessoas):
     pr = [p for p in pessoas if p['tipo'] in ('ocupante', 'beneficiario')]
     if not pr: return crf.ph('qualificação do proprietário'), 0
-    p0 = pr[0]; f0 = (p0.get('sexo') or '').upper().startswith('F')
+    p0 = pr[0]
+
+    # Neste documento, o cônjuge pode estar vinculado ao cadastro do titular,
+    # sem existir como uma segunda linha na tabela de pessoas.
+    if p0.get('conjuge'):
+        sexo_titular = (p0.get('sexo') or '').strip().upper()
+        sexo_conjuge = 'F' if sexo_titular.startswith('M') else ('M' if sexo_titular.startswith('F') else '')
+        p1 = {
+            'nome': p0.get('conjuge'),
+            'sexo': sexo_conjuge,
+            'nacionalidade': p0.get('conjuge_nacionalidade'),
+            'profissao': p0.get('conjuge_profissao'),
+            'rg': p0.get('conjuge_rg'),
+            'cpf': p0.get('conjuge_cpf'),
+            'nascimento': p0.get('conjuge_nascimento'),
+            'filiacao': p0.get('conjuge_filiacao'),
+        }
+        f0 = sexo_titular.startswith('F')
+        t = f"{_q(p0)}, casad{'a' if f0 else 'o'} com {_q(p1)}."
+        if p0.get('regime'):
+            t += f" Casados sob o regime de **{p0['regime']}**"
+            if p0.get('cert_casamento'): t += f", conforme Certidão de Casamento registrada sob a Matrícula nº {p0['cert_casamento']}"
+            if p0.get('cartorio_casamento'): t += f", expedida pelo {p0['cartorio_casamento']}"
+            if p0.get('data_casamento'): t += f", tendo o casamento sido celebrado em {p0['data_casamento']}"
+            t += '.'
+        end = next((p.get('endereco') for p in pr if p.get('endereco')), None)
+        t += f" Ambos são residentes e domiciliados na {end or crf.ph('endereço')}."
+        return t, 2
+
+    f0 = (p0.get('sexo') or '').upper().startswith('F')
     if len(pr) >= 2 and (p0.get('regime') or p0.get('cert_casamento')):
         p1 = pr[1]
         t = f"{_q(p0)}, casad{'a' if f0 else 'o'} com {_q(p1)}."
@@ -81,9 +110,10 @@ def qualificacao(pessoas):
             if p0.get('cartorio_casamento'): t += f", expedida pelo {p0['cartorio_casamento']}"
             if p0.get('data_casamento'): t += f", tendo o casamento sido celebrado em {p0['data_casamento']}"
             t += '.'
-        end = next((p['endereco'] for p in pr if p.get('endereco')), None)
+        end = next((p.get('endereco') for p in pr if p.get('endereco')), None)
         t += f" Ambos são residentes e domiciliados na {end or crf.ph('endereço')}."
         return t, 2
+
     partes = []
     for p in pr:
         f = (p.get('sexo') or '').upper().startswith('F'); s = _q(p)

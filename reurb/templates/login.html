@@ -1,1 +1,18 @@
-{% extends 'base.html' %}{% block c %}<section style="max-width:420px;margin:60px auto"><h2>Entrar</h2><form method="post">{{ csrf_token()|safe }}<label>Senha</label><input type="password" name="senha" autofocus><button>Entrar</button></form></section>{% endblock %}
+{% extends 'base.html' %}{% block c %}
+<section style="max-width:440px;margin:60px auto">
+  <span class="eyebrow">ACESSO À PLATAFORMA</span>
+  <h2>Entrar no REURB Pro</h2>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>E-mail</label>
+    <input type="email" name="email" autocomplete="username" required autofocus placeholder="voce@empresa.com.br">
+    <label>Senha</label>
+    <input type="password" name="senha" autocomplete="current-password" required>
+    <button type="submit">Entrar</button>
+  </form>
+  {% if primeiro_acesso %}
+  <div class="notice" style="margin-top:18px">Esta instalação ainda não possui contas individuais. Se você é o responsável pela implantação, crie a primeira conta proprietária.</div>
+  <a class="btn forte" href="/setup">Configurar primeiro acesso</a>
+  {% endif %}
+</section>
+{% endblock %}

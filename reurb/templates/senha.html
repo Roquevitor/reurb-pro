@@ -1,0 +1,13 @@
+{% extends 'base.html' %}{% block c %}
+<section style="max-width:520px;margin:36px auto">
+  <span class="eyebrow">SEGURANÇA DA CONTA</span>
+  <h2>Alterar minha senha</h2>
+  <form method="post" class="form-panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Senha atual</label><input type="password" name="senha_atual" required autocomplete="current-password">
+    <label>Nova senha (mínimo de 12 caracteres)</label><input type="password" name="senha_nova" minlength="12" required autocomplete="new-password">
+    <label>Confirmar nova senha</label><input type="password" name="confirmar" minlength="12" required autocomplete="new-password">
+    <button type="submit">Salvar nova senha</button>
+  </form>
+</section>
+{% endblock %}
